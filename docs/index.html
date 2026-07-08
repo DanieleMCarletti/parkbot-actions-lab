@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parkbot — Prenota Parcheggio MFN</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.1);
+      padding: 2rem;
+      width: 100%;
+      max-width: 480px;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; color: #555; }
+    input[type="date"], input[type="password"], input[type="text"] {
+      width: 100%;
+      padding: 0.6rem 0.8rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #0969da; }
+    button {
+      width: 100%;
+      padding: 0.7rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary { background: #0969da; color: white; }
+    .btn-primary:hover { background: #0757b8; }
+    .btn-primary:disabled { background: #aaa; cursor: not-allowed; }
+    .btn-secondary { background: #f0f0f0; color: #333; margin-top: 0.5rem; }
+    .btn-secondary:hover { background: #e0e0e0; }
+    .status {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+    }
+    .status.success { background: #dff0d8; color: #2d6a2d; display: block; }
+    .status.error   { background: #fde8e8; color: #a31313; display: block; }
+    .status.info    { background: #e8f0fe; color: #1a56b0; display: block; }
+    .queue-section { margin-top: 1.5rem; }
+    .queue-section h2 { font-size: 1rem; margin-bottom: 0.75rem; color: #555; }
+    .queue-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 0.75rem;
+      border-radius: 8px;
+      margin-bottom: 0.4rem;
+      font-size: 0.9rem;
+    }
+    .queue-item.pending  { background: #fff8e1; }
+    .queue-item.done     { background: #dff0d8; }
+    .queue-item.confirmed { background: #e8f0fe; }
+    .queue-item .date    { font-weight: 600; }
+    .queue-item .badge   { font-size: 0.75rem; color: #888; }
+    .remove-btn {
+      background: none; border: none; color: #cc0000;
+      cursor: pointer; font-size: 1rem; padding: 0 0.25rem;
+      width: auto;
+    }
+    .divider { border: none; border-top: 1px solid #eee; margin: 1.25rem 0; }
+    .setup-section { margin-top: 1rem; }
+    .setup-toggle { color: #0969da; cursor: pointer; font-size: 0.85rem; background: none; border: none; width: auto; text-align: left; padding: 0; }
+    .setup-box { display: none; margin-top: 0.75rem; }
+    .setup-box.open { display: block; }
+    .hint { font-size: 0.78rem; color: #888; margin-top: -0.75rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>🅿️ Parkbot</h1>
+  <p class="subtitle">Prenota il parcheggio Milanofiori Nord</p>
+
+  <!-- Setup PAT -->
+  <div class="setup-section">
+    <button class="setup-toggle" onclick="toggleSetup()">⚙️ Configurazione</button>
+    <div class="setup-box" id="setupBox">
+      <br>
+      <label for="patInput">GitHub Personal Access Token</label>
+      <input type="password" id="patInput" placeholder="github_pat_..." autocomplete="off">
+      <p class="hint">Scope necessari: <code>contents:write</code> sul tuo repo. Salvato solo nel browser.</p>
+      <label for="repoInput">Repository (es. MarioRossi/parkbot-actions-lab)</label>
+      <input type="text" id="repoInput" placeholder="username/repo">
+      <button class="btn-primary" onclick="saveConfig()">Salva configurazione</button>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- Prenotazione -->
+  <label for="dateInput">Seleziona una data</label>
+  <input type="date" id="dateInput">
+  <button class="btn-primary" id="bookBtn" onclick="prenota()">Prenota</button>
+  <div class="status" id="statusMsg"></div>
+
+  <!-- Queue -->
+  <div class="queue-section">
+    <h2>📋 Situazione prenotazioni</h2>
+    <div id="queueList"><p style="color:#aaa;font-size:0.85rem">Caricamento...</p></div>
+    <button class="btn-secondary" onclick="loadQueue()">↻ Aggiorna</button>
+  </div>
+</div>
+
+<script>
+  // ── Config ──────────────────────────────────────────────────────────────
+  function getConfig() {
+    return {
+      pat:  localStorage.getItem("parkbot_pat")  || "",
+      repo: localStorage.getItem("parkbot_repo") || "",
+    };
+  }
+  function saveConfig() {
+    const pat  = document.getElementById("patInput").value.trim();
+    const repo = document.getElementById("repoInput").value.trim();
+    if (!pat || !repo) { showStatus("Inserisci token e repo.", "error"); return; }
+    localStorage.setItem("parkbot_pat",  pat);
+    localStorage.setItem("parkbot_repo", repo);
+    showStatus("✓ Configurazione salvata.", "success");
+    toggleSetup();
+    loadQueue();
+  }
+  function toggleSetup() {
+    const box = document.getElementById("setupBox");
+    box.classList.toggle("open");
+    const { pat, repo } = getConfig();
+    if (box.classList.contains("open")) {
+      document.getElementById("patInput").value  = pat;
+      document.getElementById("repoInput").value = repo;
+    }
+  }
+
+  // ── Date min ─────────────────────────────────────────────────────────────
+  const dateInput = document.getElementById("dateInput");
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  dateInput.min = tomorrow.toISOString().split("T")[0];
+  dateInput.value = tomorrow.toISOString().split("T")[0];
+
+  // ── Status ───────────────────────────────────────────────────────────────
+  function showStatus(msg, type) {
+    const el = document.getElementById("statusMsg");
+    el.textContent = msg;
+    el.className = `status ${type}`;
+  }
+
+  // ── GitHub API ────────────────────────────────────────────────────────────
+  async function ghGet(path) {
+    const { pat, repo } = getConfig();
+    const r = await fetch(`https://api.github.com/repos/${repo}/${path}`, {
+      headers: { "Authorization": `Bearer ${pat}`, "Accept": "application/vnd.github+json", "User-Agent": "parkbot-web" }
+    });
+    return r;
+  }
+  async function ghPut(path, content, sha) {
+    const { pat, repo } = getConfig();
+    const body = { message: `chore: queue via web [skip ci]`, content: btoa(content) };
+    if (sha) body.sha = sha;
+    return fetch(`https://api.github.com/repos/${repo}/${path}`, {
+      method: "PUT",
+      headers: { "Authorization": `Bearer ${pat}`, "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json", "User-Agent": "parkbot-web" },
+      body: JSON.stringify(body),
+    });
+  }
+  async function ghDelete(path, sha) {
+    const { pat, repo } = getConfig();
+    return fetch(`https://api.github.com/repos/${repo}/${path}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${pat}`, "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json", "User-Agent": "parkbot-web" },
+      body: JSON.stringify({ message: `chore: cancel via web [skip ci]`, sha }),
+    });
+  }
+
+  // ── Prenota ──────────────────────────────────────────────────────────────
+  async function prenota() {
+    const { pat, repo } = getConfig();
+    if (!pat || !repo) { showStatus("Configura prima il token e il repo (⚙️).", "error"); return; }
+    const date = document.getElementById("dateInput").value;
+    if (!date) { showStatus("Seleziona una data.", "error"); return; }
+
+    const btn = document.getElementById("bookBtn");
+    btn.disabled = true;
+    showStatus("Aggiunta in coda...", "info");
+
+    const path = `queue/${date}-parking.json`;
+    const content = JSON.stringify({ date, type: "parking", source: "web",
+      queued_at: new Date().toISOString() }, null, 2);
+
+    // Controlla se esiste già
+    const check = await ghGet(path);
+    if (check.status === 200) {
+      showStatus(`ℹ️ ${formatDate(date)} è già in coda.`, "info");
+      btn.disabled = false;
+      return;
+    }
+
+    const r = await ghPut(`contents/${path}`, content, null);
+    if (r.ok) {
+      showStatus(`✅ Prenotazione aggiunta per ${formatDate(date)}. Tentativo a mezzanotte.`, "success");
+      await loadQueue();
+    } else {
+      const err = await r.json().catch(() => ({}));
+      showStatus(`❌ Errore: ${err.message || r.status}`, "error");
+    }
+    btn.disabled = false;
+  }
+
+  // ── Cancella ─────────────────────────────────────────────────────────────
+  async function cancella(date, sha) {
+    if (!confirm(`Rimuovere la prenotazione per ${formatDate(date)}?`)) return;
+    const path = `contents/queue/${date}-parking.json`;
+    const r = await ghDelete(path, sha);
+    if (r.ok) { await loadQueue(); }
+    else { showStatus("❌ Errore durante la rimozione.", "error"); }
+  }
+
+  // ── Carica queue ─────────────────────────────────────────────────────────
+  async function loadQueue() {
+    const { pat, repo } = getConfig();
+    const el = document.getElementById("queueList");
+    if (!pat || !repo) {
+      el.innerHTML = `<p style="color:#aaa;font-size:0.85rem">Configura il token per vedere la coda (⚙️).</p>`;
+      return;
+    }
+    el.innerHTML = `<p style="color:#aaa;font-size:0.85rem">Caricamento...</p>`;
+    try {
+      const r = await ghGet("contents/queue");
+      if (!r.ok) { el.innerHTML = `<p style="color:#aaa;font-size:0.85rem">Coda non trovata.</p>`; return; }
+      const files = await r.json();
+      const pending   = files.filter(f => f.name.endsWith("-parking.json"));
+      const done      = files.filter(f => f.name.endsWith(".done.json"));
+      const failed    = files.filter(f => f.name.includes(".failed-"));
+
+      let html = "";
+      if (pending.length === 0 && done.length === 0 && failed.length === 0) {
+        html = `<p style="color:#aaa;font-size:0.85rem">Nessuna prenotazione in coda.</p>`;
+      }
+      for (const f of pending) {
+        const date = f.name.replace("-parking.json", "");
+        html += `<div class="queue-item pending">
+          <span class="date">${formatDate(date)}</span>
+          <span>
+            <span class="badge">In attesa</span>
+            <button class="remove-btn" onclick="cancella('${date}','${f.sha}')" title="Rimuovi">✕</button>
+          </span>
+        </div>`;
+      }
+      for (const f of done) {
+        const date = f.name.replace("-parking.done.json", "");
+        html += `<div class="queue-item done"><span class="date">${formatDate(date)}</span><span class="badge">✓ Prenotato</span></div>`;
+      }
+      for (const f of failed) {
+        const date = f.name.split("-parking.failed")[0];
+        html += `<div class="queue-item" style="background:#fde8e8"><span class="date">${formatDate(date)}</span><span class="badge" style="color:#a31313">✗ Fallito</span></div>`;
+      }
+      el.innerHTML = html;
+    } catch(e) {
+      el.innerHTML = `<p style="color:#a31313;font-size:0.85rem">Errore: ${e.message}</p>`;
+    }
+  }
+
+  // ── Utils ─────────────────────────────────────────────────────────────────
+  function formatDate(iso) {
+    const [y, m, d] = iso.split("-");
+    const days = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"];
+    const months = ["","gennaio","febbraio","marzo","aprile","maggio","giugno",
+                    "luglio","agosto","settembre","ottobre","novembre","dicembre"];
+    const wd = days[new Date(iso).getDay()];
+    return `${wd} ${parseInt(d)} ${months[parseInt(m)]} ${y}`;
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadQueue();
+</script>
+</body>
+</html>
