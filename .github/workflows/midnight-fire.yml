@@ -1,0 +1,124 @@
+name: "Midnight Fire — prenotazione automatica parcheggio"
+
+on:
+  # Mezzanotte ora italiana:
+  #   CEST apr–ott: UTC+2 → mezzanotte = 22:00 UTC giorno prima
+  #   CET  ott–apr: UTC+1 → mezzanotte = 23:00 UTC giorno prima
+  # Giriamo entrambi; il doppio run è innocuo (fire è idempotente)
+  schedule:
+    - cron: "0 22 * * *"   # mezzanotte CEST
+    - cron: "0 23 * * *"   # mezzanotte CET
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: mostra la queue senza eseguire prenotazioni"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # per fare git push della queue aggiornata
+
+jobs:
+  fire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installa parkbot
+        run: pip install "git+https://github.com/lsambolino/milanofiori_automation.git"
+
+      - name: Prepara secrets
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/secrets"
+          chmod 700 "$GITHUB_WORKSPACE/secrets"
+          python3 - << 'PYEOF'
+          import json, os, time
+
+          base = os.environ["GITHUB_WORKSPACE"]
+
+          # tokens.json
+          tokens_path = os.path.join(base, "secrets", "tokens.json")
+          data = {"refresh_token": os.environ["COGNITO_REFRESH_TOKEN"], "saved_at": time.time()}
+          with open(tokens_path, "w") as f:
+              json.dump(data, f)
+          os.chmod(tokens_path, 0o600)
+
+          # telegram.json
+          tg_path = os.path.join(base, "secrets", "telegram.json")
+          tg = {
+              "bot_token": os.environ["TELEGRAM_BOT_TOKEN"],
+              "allowed_chat_id": int(os.environ["TELEGRAM_CHAT_ID"]),
+          }
+          with open(tg_path, "w") as f:
+              json.dump(tg, f)
+          os.chmod(tg_path, 0o600)
+
+          print("Secrets pronti")
+          PYEOF
+        env:
+          COGNITO_REFRESH_TOKEN: ${{ secrets.COGNITO_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Mostra queue corrente
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+        run: parkbot list || echo "(queue vuota)"
+
+      - name: Esegui parkbot fire
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+        run: parkbot fire
+
+      - name: Dry run — skip prenotazioni
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: echo "Dry run attivo — nessuna prenotazione eseguita"
+
+      - name: Aggiorna refresh_token se ruotato
+        if: always()
+        run: |
+          python3 - << 'PYEOF'
+          import json, os, sys
+
+          tokens_path = os.path.join(os.environ["GITHUB_WORKSPACE"], "secrets", "tokens.json")
+          if not os.path.exists(tokens_path):
+              print("tokens.json non trovato, skip")
+              sys.exit(0)
+
+          with open(tokens_path) as f:
+              current = json.load(f)
+
+          new_token = current.get("refresh_token", "")
+          old_token = os.environ.get("COGNITO_REFRESH_TOKEN_ORIG", "")
+
+          if new_token and new_token != old_token:
+              print("Refresh token ruotato — aggiorna manualmente il secret COGNITO_REFRESH_TOKEN su GitHub")
+              print(f"Nuovo valore (prime 20 char): {new_token[:20]}...")
+              # Scrive in GITHUB_OUTPUT per eventuale uso futuro
+              with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as out:
+                  out.write(f"token_rotated=true\n")
+          else:
+              print("Refresh token invariato")
+          PYEOF
+        env:
+          COGNITO_REFRESH_TOKEN_ORIG: ${{ secrets.COGNITO_REFRESH_TOKEN }}
+
+      - name: Commit queue aggiornata
+        if: always()
+        run: |
+          git config user.name  "parkbot-actions"
+          git config user.email "parkbot@users.noreply.github.com"
+          git add queue/
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica alla queue"
+          else
+            git commit -m "chore: queue update $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
+            git push
+          fi

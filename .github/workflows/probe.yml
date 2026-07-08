@@ -1,0 +1,98 @@
+name: "Probe — verifica accesso API MFN"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installa parkbot
+        run: pip install "git+https://github.com/lsambolino/milanofiori_automation.git"
+
+      - name: Crea secrets/tokens.json dal secret GitHub
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/secrets"
+          chmod 700 "$GITHUB_WORKSPACE/secrets"
+          cat > "$GITHUB_WORKSPACE/secrets/tokens.json" << 'EOF'
+          {"refresh_token": "${{ secrets.COGNITO_REFRESH_TOKEN }}", "saved_at": 0}
+          EOF
+          # Usa python per evitare problemi di quoting col token JWT
+          python3 - << 'PYEOF'
+          import json, os
+          token = os.environ["COGNITO_REFRESH_TOKEN"]
+          import time
+          data = {"refresh_token": token, "saved_at": time.time()}
+          path = os.path.join(os.environ["GITHUB_WORKSPACE"], "secrets", "tokens.json")
+          with open(path, "w") as f:
+              json.dump(data, f)
+          os.chmod(path, 0o600)
+          print("tokens.json scritto correttamente")
+          PYEOF
+        env:
+          COGNITO_REFRESH_TOKEN: ${{ secrets.COGNITO_REFRESH_TOKEN }}
+
+      - name: Verifica token Cognito (refresh)
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+        run: |
+          echo "=== Test refresh token Cognito ==="
+          python3 - << 'EOF'
+          import os, sys
+          os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
+          from parkbot import config
+          print(f"STATE_DIR: {config.STATE_DIR}")
+          print(f"TOKEN_FILE exists: {config.TOKEN_FILE.exists()}")
+          try:
+              from parkbot.tokens import get_access_token
+              bundle = get_access_token()
+              # Maschera il token nei log
+              masked = bundle.access_token[:10] + "..." + bundle.access_token[-5:]
+              print(f"✓ Access token ottenuto: {masked}")
+              print(f"  expires_at: {bundle.expires_at}")
+          except Exception as e:
+              print(f"✗ Errore token: {e}", file=sys.stderr)
+              sys.exit(1)
+          EOF
+
+      - name: Lista prenotazioni future (read-only)
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+        run: |
+          echo "=== parkbot future ==="
+          parkbot future || true
+
+      - name: Verifica disponibilità API (httpx diretto)
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+        run: |
+          python3 - << 'EOF'
+          import os, sys
+          os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
+          from parkbot.tokens import get_access_token
+          from parkbot import config
+          import httpx
+
+          bundle = get_access_token()
+          headers = {"Authorization": bundle.authorization_header}
+
+          # Controlla la finestra di prenotazione
+          r = httpx.get(f"{config.PORTAL_API}/prenotazioni/window", headers=headers, timeout=15)
+          print(f"GET /prenotazioni/window → HTTP {r.status_code}")
+          if r.status_code == 200:
+              import json
+              data = r.json()
+              print(f"  minDate: {data.get('minDate')}")
+              print(f"  maxDate: {data.get('maxDate')}")
+              print("✓ Portale MFN raggiungibile da GitHub Actions")
+          else:
+              print(f"  body: {r.text[:200]}")
+              print("✗ Portale non raggiungibile o risposta inattesa")
+              sys.exit(1)
+          EOF
