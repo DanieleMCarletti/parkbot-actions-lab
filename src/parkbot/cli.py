@@ -251,8 +251,8 @@ def _cmd_fire(_args: argparse.Namespace) -> int:
             print(f"WARN: Cognito token error — {e}", file=sys.stderr)
             notify.notify(
                 f"🅿️❌ Token Milanofiori Nord scaduto.\n"
-                f"Rilancia <code>parkbot bootstrap</code> (serve un tap MFA).\n"
-                f"Interessati: {', '.join(dateparse.to_display(e.date) for e in parking_entries)}"
+                f"Interessati: {', '.join(dateparse.to_display(e.date) for e in parking_entries)}\n"
+                f"👉 <a href=\"https://danielemcarletti.github.io/parkbot-actions-lab/rinnovo-token\">Come rinnovare il token</a>"
             )
 
     # Get SN session once for all SN entries.
@@ -358,6 +358,22 @@ def _cmd_fire(_args: argparse.Namespace) -> int:
             lines.append(f"⏳ In coda: <b>{dateparse.to_display(d)}</b> — fuori finestra, riprovo domani")
         for d in failed_dates:
             lines.append(f"❌ Fallito: <b>{dateparse.to_display(d)}</b>")
+
+        # Append currently active bookings from the portal
+        try:
+            future = booking.list_future_bookings(token=mfn_token)
+            active = [b for b in future if b.get("data") not in booked_dates]
+            if active:
+                lines.append("")
+                lines.append("📋 <b>Prenotazioni attive sul portale:</b>")
+                for b in active:
+                    display_date = dateparse.to_display(b["data"])
+                    spot = b.get("posti_codice", "—")
+                    parking_name = (b.get("parcheggio") or {}).get("nome_parcheggio", "")
+                    lines.append(f"  • {display_date} — posto <b>{spot}</b> ({parking_name})")
+        except Exception:
+            pass
+
         notify.notify("\n".join(lines))
 
     return overall_rc
