@@ -83,8 +83,8 @@ jobs:
           headers = {"Authorization": bundle.authorization_header}
 
           # Controlla la finestra di prenotazione
-          r = httpx.get(f"{config.PORTAL_API}/prenotazioni/window", headers=headers, timeout=15)
-          print(f"GET /prenotazioni/window → HTTP {r.status_code}")
+          r = httpx.get(f"{config.PORTAL_API}/prenotazioni/disponibilita", headers=headers, timeout=15)
+          print(f"GET /prenotazioni/disponibilita → HTTP {r.status_code}")
           if r.status_code == 200:
               import json
               data = r.json()
