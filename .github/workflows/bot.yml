@@ -1,0 +1,155 @@
+name: "Bot — gestione comandi Telegram"
+
+on:
+  repository_dispatch:
+    types: [telegram-command]
+
+permissions:
+  contents: write
+
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installa parkbot
+        run: pip install -e .
+
+      - name: Prepara secrets
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/secrets"
+          chmod 700 "$GITHUB_WORKSPACE/secrets"
+          python3 - << 'PYEOF'
+          import json, os, time
+          base = os.environ["GITHUB_WORKSPACE"]
+          with open(f"{base}/secrets/tokens.json", "w") as f:
+              json.dump({"refresh_token": os.environ["COGNITO_REFRESH_TOKEN"], "saved_at": time.time()}, f)
+          os.chmod(f"{base}/secrets/tokens.json", 0o600)
+          with open(f"{base}/secrets/telegram.json", "w") as f:
+              json.dump({"bot_token": os.environ["TELEGRAM_BOT_TOKEN"], "allowed_chat_id": int(os.environ["TELEGRAM_CHAT_ID"])}, f)
+          os.chmod(f"{base}/secrets/telegram.json", 0o600)
+          PYEOF
+        env:
+          COGNITO_REFRESH_TOKEN: ${{ secrets.COGNITO_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Gestisci comando
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          COMMAND: ${{ github.event.client_payload.command }}
+          ARGS: ${{ github.event.client_payload.args }}
+          CHAT_ID: ${{ github.event.client_payload.chat_id }}
+        run: |
+          python3 - << 'EOF'
+          import os, sys
+          import httpx
+
+          os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
+          from parkbot import config, dateparse
+          from parkbot.booking import list_future_bookings
+          from parkbot.tokens import get_access_token
+          from parkbot import queue as q
+
+          command = os.environ.get("COMMAND", "").lower().strip()
+          args    = os.environ.get("ARGS", "").strip()
+          chat_id = os.environ.get("CHAT_ID", "")
+          token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
+          def send(text):
+              httpx.post(
+                  f"https://api.telegram.org/bot{token}/sendMessage",
+                  json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+                  timeout=10,
+              )
+
+          if command == "/park":
+              if not args:
+                  send("❌ Uso: /park &lt;data&gt;\nEsempio: /park giovedì")
+                  sys.exit(0)
+              try:
+                  iso = dateparse.parse_date(args)
+              except Exception:
+                  send(f"❌ Data non riconosciuta: <b>{args}</b>")
+                  sys.exit(0)
+              _, created = q.queue_booking(iso, "parking", source="telegram")
+              if created:
+                  send(f"✅ Aggiunto in coda: <b>{dateparse.to_display(iso)}</b>\nTentativo a mezzanotte.")
+              else:
+                  send(f"ℹ️ <b>{dateparse.to_display(iso)}</b> è già in coda.")
+
+          elif command == "/list":
+              entries = q.list_queue()
+              if not entries:
+                  send("📋 Nessuna prenotazione in coda.")
+              else:
+                  lines = ["📋 <b>In coda:</b>"]
+                  for e in entries:
+                      lines.append(f"  • {dateparse.to_display(e.date)}")
+                  send("\n".join(lines))
+
+          elif command == "/cancel":
+              if not args:
+                  send("❌ Uso: /cancel &lt;data&gt;")
+                  sys.exit(0)
+              try:
+                  iso = dateparse.parse_date(args)
+              except Exception:
+                  send(f"❌ Data non riconosciuta: <b>{args}</b>")
+                  sys.exit(0)
+              path = config.QUEUE_DIR / f"{iso}-parking.json"
+              if path.exists():
+                  path.unlink()
+                  send(f"🗑️ Rimosso: <b>{dateparse.to_display(iso)}</b>")
+              else:
+                  send(f"ℹ️ Nessuna prenotazione in coda per {dateparse.to_display(iso)}.")
+
+          elif command == "/future":
+              try:
+                  bundle = get_access_token()
+                  bookings = list_future_bookings(token=bundle)
+                  if not bookings:
+                      send("📅 Nessuna prenotazione futura sul portale.")
+                  else:
+                      lines = ["📅 <b>Prenotazioni confermate:</b>"]
+                      for b in bookings:
+                          spot = b.get("posti_codice", "—")
+                          lines.append(f"  • {dateparse.to_display(b['data'])} — posto <b>{spot}</b>")
+                      send("\n".join(lines))
+              except Exception as e:
+                  send(f"❌ Errore API: {e}")
+
+          elif command in ("/help", "/start"):
+              send(
+                  "🅿️ <b>Parkbot — comandi disponibili:</b>\n\n"
+                  "/park &lt;data&gt; — prenota (es: /park giovedì)\n"
+                  "/list — mostra prenotazioni in coda\n"
+                  "/cancel &lt;data&gt; — rimuovi dalla coda\n"
+                  "/future — prenotazioni confermate sul portale\n"
+                  "/help — questo messaggio\n\n"
+                  "Date accettate: oggi, domani, dopodomani, lunedì…domenica, gg/mm/aaaa"
+              )
+
+          else:
+              send(f"❓ Comando non riconosciuto: {command}\nUsa /help per la lista.")
+          EOF
+
+      - name: Commit queue se modificata
+        run: |
+          git config user.name  "parkbot-actions"
+          git config user.email "parkbot@users.noreply.github.com"
+          git add queue/
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica alla queue"
+          else
+            git commit -m "chore: queue update via bot [skip ci]"
+            git push
+          fi
