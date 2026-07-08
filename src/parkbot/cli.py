@@ -252,7 +252,7 @@ def _cmd_fire(_args: argparse.Namespace) -> int:
             notify.notify(
                 f"🅿️❌ Token Milanofiori Nord scaduto.\n"
                 f"Interessati: {', '.join(dateparse.to_display(e.date) for e in parking_entries)}\n"
-                f"👉 <a href=\"https://danielemcarletti.github.io/parkbot-actions-lab/rinnovo-token\">Come rinnovare il token</a>"
+                f"👉 <a href=\"https://gist.github.com/DanieleMCarletti/f72f1843f08c77a9bf8f96813e57a7dd\">Come rinnovare il token</a>"
             )
 
     # Get SN session once for all SN entries.
