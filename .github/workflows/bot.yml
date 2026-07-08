@@ -71,6 +71,35 @@ jobs:
                   timeout=10,
               )
 
+          def send_status(prefix_lines):
+              """Aggiunge riepilogo coda + prenotazioni confermate al messaggio."""
+              lines = list(prefix_lines)
+              # Prenotazioni in coda
+              entries = q.list_queue()
+              if entries:
+                  lines.append("")
+                  lines.append("📋 <b>In coda:</b>")
+                  for e in entries:
+                      lines.append(f"  • {dateparse.to_display(e.date)}")
+              else:
+                  lines.append("")
+                  lines.append("📋 Nessuna altra prenotazione in coda.")
+              # Prenotazioni confermate sul portale
+              try:
+                  bundle = get_access_token()
+                  bookings = list_future_bookings(token=bundle)
+                  if bookings:
+                      lines.append("")
+                      lines.append("✅ <b>Confermate sul portale:</b>")
+                      for b in bookings:
+                          spot = b.get("posti_codice", "—")
+                          targa = b.get("targa", "")
+                          targa_str = f" · targa {targa}" if targa else ""
+                          lines.append(f"  • {dateparse.to_display(b['data'])} — posto <b>{spot}</b>{targa_str}")
+              except Exception:
+                  pass
+              send("\n".join(lines))
+
           if command == "/park":
               if not args:
                   send("❌ Uso: /park &lt;data&gt;\nEsempio: /park giovedì")
@@ -82,19 +111,12 @@ jobs:
                   sys.exit(0)
               _, created = q.queue_booking(iso, "parking", source="telegram")
               if created:
-                  send(f"✅ Aggiunto in coda: <b>{dateparse.to_display(iso)}</b>\nTentativo a mezzanotte.")
+                  send_status([f"✅ Aggiunto in coda: <b>{dateparse.to_display(iso)}</b>"])
               else:
-                  send(f"ℹ️ <b>{dateparse.to_display(iso)}</b> è già in coda.")
+                  send_status([f"ℹ️ <b>{dateparse.to_display(iso)}</b> era già in coda."])
 
           elif command == "/list":
-              entries = q.list_queue()
-              if not entries:
-                  send("📋 Nessuna prenotazione in coda.")
-              else:
-                  lines = ["📋 <b>In coda:</b>"]
-                  for e in entries:
-                      lines.append(f"  • {dateparse.to_display(e.date)}")
-                  send("\n".join(lines))
+              send_status(["📋 <b>Stato prenotazioni:</b>"])
 
           elif command == "/cancel":
               if not args:
@@ -122,7 +144,9 @@ jobs:
                       lines = ["📅 <b>Prenotazioni confermate:</b>"]
                       for b in bookings:
                           spot = b.get("posti_codice", "—")
-                          lines.append(f"  • {dateparse.to_display(b['data'])} — posto <b>{spot}</b>")
+                          targa = b.get("targa", "")
+                          targa_str = f" · targa {targa}" if targa else ""
+                          lines.append(f"  • {dateparse.to_display(b['data'])} — posto <b>{spot}</b>{targa_str}")
                       send("\n".join(lines))
               except Exception as e:
                   send(f"❌ Errore API: {e}")
