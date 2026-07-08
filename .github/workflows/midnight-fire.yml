@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write   # per fare git push della queue aggiornata
+  issues: write     # per creare issue di notifica
 
 jobs:
   fire:
@@ -109,6 +110,86 @@ jobs:
           PYEOF
         env:
           COGNITO_REFRESH_TOKEN_ORIG: ${{ secrets.COGNITO_REFRESH_TOKEN }}
+
+      - name: Notifica via GitHub Issue
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - << 'PYEOF'
+          import os, json, subprocess
+          from pathlib import Path
+
+          state_dir = os.environ["PARKBOT_STATE_DIR"]
+          queue_dir = Path(state_dir) / "queue"
+
+          done    = sorted(queue_dir.glob("*-parking.done.json"))
+          waiting = sorted(queue_dir.glob("*-parking.json"))
+          failed  = sorted(queue_dir.glob("*-parking.failed-*.json"))
+
+          # Leggi prenotazioni confermate sul portale
+          confirmed = []
+          try:
+              import sys
+              sys.path.insert(0, f"{state_dir}/src")
+              from parkbot.tokens import get_access_token
+              from parkbot.booking import list_future_bookings
+              bundle = get_access_token()
+              for b in list_future_bookings(token=bundle):
+                  spot  = b.get("posti_codice", "—")
+                  targa = b.get("targa", "")
+                  targa_str = f" · targa {targa}" if targa else ""
+                  confirmed.append(f"- {b['data']} — posto **{spot}**{targa_str}")
+          except Exception:
+              pass
+
+          lines = []
+          if done:
+              lines.append("## ✅ Prenotato questa notte")
+              for f in done:
+                  d = json.loads(f.read_text()).get("date", f.stem.split("-parking")[0])
+                  lines.append(f"- {d}")
+          if waiting:
+              lines.append("## ⏳ In coda (fuori finestra o non disponibile)")
+              for f in waiting:
+                  d = json.loads(f.read_text()).get("date", f.stem.split("-parking")[0])
+                  lines.append(f"- {d} — riprovo domani notte")
+          if failed:
+              lines.append("## ❌ Falliti")
+              for f in failed:
+                  d = json.loads(f.read_text()).get("date", f.stem.split("-parking")[0])
+                  lines.append(f"- {d}")
+          if confirmed:
+              lines.append("## 📋 Prenotazioni confermate sul portale")
+              lines.extend(confirmed)
+
+          if not lines:
+              print("Nessuna attività da notificare — skip issue")
+              exit(0)
+
+          today = __import__("datetime").date.today().strftime("%d/%m/%Y")
+          title = f"🅿️ Riepilogo parcheggio {today}"
+          body  = "\n".join(lines) + "\n\n---\n*Questa issue viene chiusa automaticamente — serve solo come notifica email.*"
+
+          subprocess.run([
+              "gh", "issue", "create",
+              "--title", title,
+              "--body",  body,
+              "--label", "parkbot",
+          ], check=False)
+
+          # Chiudi subito la issue appena creata
+          result = subprocess.run(
+              ["gh", "issue", "list", "--label", "parkbot", "--state", "open", "--json", "number", "--limit", "1"],
+              capture_output=True, text=True
+          )
+          issues = json.loads(result.stdout or "[]")
+          if issues:
+              num = issues[0]["number"]
+              subprocess.run(["gh", "issue", "close", str(num), "--comment", "Notifica inviata ✓"], check=False)
+              print(f"Issue #{num} creata e chiusa")
+          PYEOF
 
       - name: Commit queue aggiornata
         if: always()
