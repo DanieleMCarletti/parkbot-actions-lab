@@ -297,6 +297,11 @@ def _cmd_fire(_args: argparse.Namespace) -> int:
         by_date[e.date][e.type] = e
 
     overall_rc = 0
+    # Collect results for end-of-run summary notification
+    booked_dates: list[str] = []
+    waiting_dates: list[str] = []
+    failed_dates: list[str] = []
+
     for date in sorted(by_date):
         type_map = by_date[date]
         print(f"Processing date={date} types={list(type_map)}")
@@ -323,11 +328,17 @@ def _cmd_fire(_args: argparse.Namespace) -> int:
             else:
                 success, stay = _fire_parking_entry(type_map["parking"], mfn_token)
                 if success:
+                    park_booked = True
                     # Cancel SN sibling to prevent double-booking
                     sn_path = config.QUEUE_DIR / f"{date}-sn_park.json"
                     sn_path.unlink(missing_ok=True)
-                elif not stay:
-                    overall_rc = 1
+                elif stay:
+                    waiting_dates.append(date)
+                else:
+                    failed_dates.append(date)
+
+        if park_booked:
+            booked_dates.append(date)
 
         # --- Seat (independent of parking) ---
         if "seat" in type_map:
@@ -337,6 +348,17 @@ def _cmd_fire(_args: argparse.Namespace) -> int:
                 success, stay = _fire_seat_entry(type_map["seat"], sn_session)
                 if not success and not stay:
                     overall_rc = 1
+
+    # End-of-run summary notification (only if there's something to report)
+    if booked_dates or waiting_dates or failed_dates:
+        lines = ["🅿️ <b>Riepilogo prenotazioni</b>"]
+        for d in booked_dates:
+            lines.append(f"✅ Prenotato: <b>{dateparse.to_display(d)}</b>")
+        for d in waiting_dates:
+            lines.append(f"⏳ In coda: <b>{dateparse.to_display(d)}</b> — fuori finestra, riprovo domani")
+        for d in failed_dates:
+            lines.append(f"❌ Fallito: <b>{dateparse.to_display(d)}</b>")
+        notify.notify("\n".join(lines))
 
     return overall_rc
 
