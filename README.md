@@ -1,91 +1,142 @@
 # parkbot-actions-lab
 
-Repo di sperimentazione per eseguire [parkbot](https://github.com/lsambolino/milanofiori_automation) su GitHub Actions invece che su un PC acceso a mezzanotte.
-
-## Setup (una-tantum)
-
-### 1. Crea il repo su GitHub
-
-```bash
-# Dalla cartella parkbot-actions-lab
-git init
-git add .
-git commit -m "init"
-gh repo create parkbot-actions-lab --private --source=. --push
-```
-
-Se `gh` non è installato, crea il repo manualmente su github.com → Settings → New repository (privato), poi:
-
-```bash
-git remote add origin https://github.com/<tuo-username>/parkbot-actions-lab.git
-git push -u origin main
-```
-
-### 2. Aggiungi i secrets su GitHub
-
-Settings → Secrets and variables → Actions → New repository secret:
-
-| Nome | Valore |
-|---|---|
-| `COGNITO_REFRESH_TOKEN` | contenuto di `~/.local/share/parkbot/secrets/tokens.json` → campo `refresh_token` |
-| `TELEGRAM_BOT_TOKEN` | contenuto di `~/.local/share/parkbot/secrets/telegram.json` → campo `bot_token` |
-| `TELEGRAM_CHAT_ID` | contenuto di `~/.local/share/parkbot/secrets/telegram.json` → campo `allowed_chat_id` |
-
-Per leggere i valori in locale:
-
-```bash
-cat ~/.local/share/parkbot/secrets/tokens.json
-cat ~/.local/share/parkbot/secrets/telegram.json
-```
-
-### 3. Fase 0 — testa la connettività
-
-Actions → "Probe — verifica accesso API MFN" → Run workflow
-
-Controlla il log: se vedi `✓ Portale MFN raggiungibile da GitHub Actions` sei a posto.
-Se fallisce (IP bloccato, geo-restriction), il progetto si ferma qui.
-
-### 4. Aggiungi una prenotazione di test
-
-Per testare il job notturno manualmente, aggiungi un file nella cartella `queue/`:
-
-```bash
-# Crea un file prenotazione (es. per il 2026-07-15)
-cat > queue/2026-07-15-parking.json << 'EOF'
-{"date": "2026-07-15", "type": "parking", "source": "manual", "queued_at": "2026-07-08T00:00:00"}
-EOF
-git add queue/
-git commit -m "test: aggiungo prenotazione manuale"
-git push
-```
-
-Poi: Actions → "Midnight Fire" → Run workflow → deseleziona "dry run" → Run.
+Prenotazione automatica del parcheggio Milanofiori Nord via GitHub Actions + Telegram bot. Zero PC acceso a mezzanotte.
 
 ## Come funziona
 
-1. Il bot Telegram locale (o su Railway, fase 2) aggiunge file in `queue/` e fa push
-2. Ogni notte alle 00:00 (ora italiana) GitHub Actions esegue `parkbot fire`:
-   - Legge i file in `queue/`
-   - Tenta le prenotazioni tramite API Cognito
-   - Rinomina i file in `.done.json` o `.failed-*.json`
-   - Commita le modifiche alla queue
-   - Invia notifica Telegram con il posto assegnato
+```
+/park giovedì  →  Telegram Bot  →  GitHub repo (queue/)
+                                         ↓
+                              GitHub Actions (00:00 ogni notte)
+                                         ↓
+                              Portale MFN API  →  Telegram notifica
+```
 
-## Rinnovo token (~30 giorni)
+- Il **bot Telegram** riceve i comandi e aggiorna la coda nel repo
+- Il **job notturno** gira automaticamente a mezzanotte e prenota
+- **Zero infrastruttura** da gestire: tutto su GitHub Actions (gratuito) + Cloudflare Workers (gratuito)
 
-Quando il refresh_token Cognito scade, il job fallisce con `invalid_grant`.
+---
 
-Per rinnovarlo:
-1. In locale: `DISPLAY=:0 parkbot bootstrap` (login interattivo con MFA)
-2. Leggi il nuovo token: `cat ~/.local/share/parkbot/secrets/tokens.json`
-3. Aggiorna il secret su GitHub: Settings → Secrets → `COGNITO_REFRESH_TOKEN` → Update
+## Setup per un nuovo utente
+
+### Prerequisiti (10 minuti)
+
+**1. Crea il tuo repo da questo template**
+
+Clicca **"Use this template"** → **"Create a new repository"** → nome a scelta, **privato**.
+
+**2. Crea un bot Telegram**
+
+- Apri Telegram → cerca `@BotFather` → `/newbot`
+- Salva il token (formato `123456789:AABBcc...`)
+- Manda `/start` al tuo nuovo bot
+- Apri `https://api.telegram.org/bot<TOKEN>/getUpdates` → copia il numero `chat.id`
+
+**3. Cattura il token MFN dal browser**
+
+- Apri Edge sul PC Windows → `https://parcheggimilanofiorinord.it/app/login`
+- F12 → Network → Preserve log → fai login con la tua passkey Accenture
+- Filtra per `oauth2/token` → Response → copia `refresh_token` (inizia con `eyJ...`)
+
+**4. Crea un GitHub PAT temporaneo per il setup**
+
+- Vai su `https://github.com/settings/tokens` → **Generate new token (classic)**
+- Scope: `repo` + `workflow`
+- Copia il token (serve solo per il setup, poi puoi cancellarlo)
+
+**5. Crea il Cloudflare Worker**
+
+- Vai su [dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → Create Worker
+- Nome: `parkbot-webhook` → Deploy
+- Sostituisci il codice con quello qui sotto:
+
+```javascript
+export default {
+  async fetch(request, env) {
+    if (request.method !== "POST") return new Response("OK");
+    const body = await request.json().catch(() => null);
+    const message = body?.message;
+    if (!message) return new Response("OK");
+    const chatId = String(message.chat?.id || "");
+    if (chatId !== (env.ALLOWED_CHAT_ID || "NOT_SET")) return new Response("OK");
+    const text = (message.text || "").trim();
+    const parts = text.split(/\s+/);
+    const command = (parts[0] || "").toLowerCase().replace(/@\S+$/, "");
+    const args = parts.slice(1).join(" ");
+    const headers = {
+      "Authorization": `Bearer ${env.GITHUB_PAT}`,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "parkbot-webhook/1.0",
+    };
+    await fetch("https://api.github.com/repos/<TUO_USERNAME>/<TUO_REPO>/dispatches", {
+      method: "POST", headers,
+      body: JSON.stringify({
+        event_type: "telegram-command",
+        client_payload: { command, args, chat_id: chatId },
+      }),
+    });
+    return new Response("OK");
+  },
+};
+```
+
+> ⚠️ Sostituisci `<TUO_USERNAME>/<TUO_REPO>` con il tuo repo GitHub (es. `MarioRossi/parkbot-actions-lab`)
+
+- Settings → Variables and Secrets → aggiungi:
+  - `GITHUB_PAT`: un GitHub PAT classic con scope `repo`+`workflow` (può essere lo stesso del setup o uno nuovo)
+  - `ALLOWED_CHAT_ID`: il tuo Telegram Chat ID (numero)
+- Deploy
+
+---
+
+### Esegui il setup automatico
+
+Vai su **Actions → "Setup — configurazione iniziale parkbot" → Run workflow**
+
+Compila i campi:
+| Campo | Valore |
+|---|---|
+| `cognito_refresh_token` | il `refresh_token` catturato dal browser |
+| `telegram_bot_token` | il token del tuo bot Telegram |
+| `telegram_chat_id` | il tuo chat ID Telegram |
+| `cloudflare_worker_url` | es. `parkbot-webhook.xxx.workers.dev` |
+| `setup_pat` | il GitHub PAT temporaneo creato al passo 4 |
+
+Il workflow salva i secrets, registra il webhook e verifica che tutto funzioni.
+
+---
+
+## Comandi Telegram
+
+| Comando | Descrizione |
+|---|---|
+| `/park <data>` | Aggiungi prenotazione (es. `/park giovedì`, `/park 22/07`) |
+| `/list` | Mostra coda e prenotazioni confermate |
+| `/future` | Prenotazioni confermate sul portale |
+| `/cancel <data>` | Rimuovi dalla coda |
+| `/help` | Lista comandi |
+
+Date accettate: `oggi`, `domani`, `dopodomani`, `lunedì`…`domenica`, `gg/mm`, `gg/mm/aaaa`
+
+---
+
+## Rinnovo token MFN (~30 giorni)
+
+Quando il bot avvisa che il token è scaduto: [segui questa guida](https://gist.github.com/DanieleMCarletti/f72f1843f08c77a9bf8f96813e57a7dd)
+
+---
 
 ## Struttura
 
 ```
-queue/          # Prenotazioni pendenti (.json), completate (.done.json), fallite (.failed-*.json)
-.github/
-  workflows/
-    probe.yml           # Test connettività (esegui una volta per verificare)
-    midnight-fire.yml   # Job notturno (gira automaticamente a mezzanotte)
+queue/                          # Prenotazioni pendenti/completate/fallite
+src/parkbot/                    # Codice parkbot (da milanofiori_automation)
+.github/workflows/
+  setup.yml                     # Setup iniziale (eseguire una volta)
+  probe.yml                     # Test connettività API
+  midnight-fire.yml             # Job notturno (automatico, 00:00)
+  bot.yml                       # Gestione comandi Telegram
 ```
