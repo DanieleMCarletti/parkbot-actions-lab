@@ -1,0 +1,2 @@
+[console_scripts]
+parkbot = parkbot.cli:main

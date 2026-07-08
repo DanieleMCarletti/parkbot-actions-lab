@@ -14,7 +14,7 @@ jobs:
           python-version: "3.11"
 
       - name: Installa parkbot
-        run: pip install "git+https://github.com/lsambolino/milanofiori_automation.git"
+        run: pip install -e .
 
       - name: Crea secrets/tokens.json dal secret GitHub
         run: |

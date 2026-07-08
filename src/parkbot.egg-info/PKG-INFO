@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: parkbot
+Version: 0.1.0
+Summary: Auto-book Assago parking via Cognito API
+Requires-Python: >=3.11
+Requires-Dist: httpx>=0.27
+Requires-Dist: playwright>=1.49
+Requires-Dist: python-telegram-bot>=21.0
+Requires-Dist: structlog>=24.4
