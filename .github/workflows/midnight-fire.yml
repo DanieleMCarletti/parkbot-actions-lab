@@ -16,7 +16,7 @@ on:
       dry_run:
         description: "Dry run: mostra la queue senza eseguire prenotazioni"
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write   # per fare git push della queue aggiornata
