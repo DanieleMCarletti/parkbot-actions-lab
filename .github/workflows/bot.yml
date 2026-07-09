@@ -155,6 +155,14 @@ jobs:
               import json
               from pathlib import Path
 
+              import unicodedata
+
+              def strip_accents(s):
+                  return ''.join(
+                      c for c in unicodedata.normalize('NFD', s)
+                      if unicodedata.category(c) != 'Mn'
+                  ).lower()
+
               state_dir = Path(os.environ["PARKBOT_STATE_DIR"])
               search_state = state_dir / "state" / "card_search.json"
               search_state.parent.mkdir(exist_ok=True)
@@ -201,17 +209,36 @@ jobs:
                   send("❌ Uso: /card &lt;nome&gt;\nEsempio: /card hedge fund")
                   sys.exit(0)
 
-              # Cerca via API v3
-              resp = httpx.get(
-                  "https://api.netrunnerdb.com/api/v3/public/cards",
-                  params={"filter[search]": args, "include": "latest_printing_images"},
-                  timeout=15,
-              )
-              if resp.status_code != 200:
-                  send(f"❌ Errore API NetrunnerDB: HTTP {resp.status_code}")
+              # Cerca via API v3 — prima con query originale, poi normalizzata
+              def search_api(query):
+                  r = httpx.get(
+                      "https://api.netrunnerdb.com/api/v3/public/cards",
+                      params={"filter[search]": query, "include": "latest_printing_images"},
+                      timeout=15,
+                  )
+                  if r.status_code != 200:
+                      return None, r.status_code
+                  return r.json().get("data", []), 200
+
+              data, status = search_api(args)
+              if data is None:
+                  send(f"❌ Errore API NetrunnerDB: HTTP {status}")
                   sys.exit(0)
 
-              data = resp.json().get("data", [])
+              # Se nessun risultato, riprova con query normalizzata (strip accenti)
+              if not data:
+                  normalized_query = strip_accents(args)
+                  if normalized_query != args.lower():
+                      data, status = search_api(normalized_query)
+                      if data is None:
+                          data = []
+              # Filtro client-side: ordina per match esatto nel titolo normalizzato
+              if data:
+                  q_norm = strip_accents(args)
+                  data.sort(key=lambda c: (
+                      0 if strip_accents(c.get("attributes", {}).get("title", "")) == q_norm else
+                      1 if q_norm in strip_accents(c.get("attributes", {}).get("title", "")) else 2
+                  ))
               if not data:
                   send(f"🔍 Nessuna carta trovata per: <b>{args}</b>")
                   sys.exit(0)
