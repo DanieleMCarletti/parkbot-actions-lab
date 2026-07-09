@@ -1,13 +1,11 @@
 name: "Midnight Fire — prenotazione automatica parcheggio"
 
 on:
-  # Mezzanotte ora italiana:
-  #   CEST apr–ott: UTC+2 → mezzanotte = 22:00 UTC giorno prima
-  #   CET  ott–apr: UTC+1 → mezzanotte = 23:00 UTC giorno prima
-  # Giriamo entrambi; il doppio run è innocuo (fire è idempotente)
+  # Mezzanotte ora italiana (GitHub Actions usa sempre UTC):
+  #   CEST apr–ott: UTC+2 → mezzanotte = 22:00 UTC  ← attivo ora
+  #   CET  ott–apr: UTC+1 → mezzanotte = 23:00 UTC  ← cambiare in ottobre
   schedule:
-    - cron: "0 22 * * *"   # mezzanotte CEST
-    - cron: "0 23 * * *"   # mezzanotte CET
+    - cron: "0 22 * * *"   # mezzanotte ora italiana (CEST, estate)
   workflow_dispatch:
     inputs:
       dry_run:
