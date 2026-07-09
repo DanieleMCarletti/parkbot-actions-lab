@@ -151,6 +151,89 @@ jobs:
               except Exception as e:
                   send(f"❌ Errore API: {e}")
 
+          elif command == "/card":
+              import json
+              from pathlib import Path
+
+              state_dir = Path(os.environ["PARKBOT_STATE_DIR"])
+              search_state = state_dir / "state" / "card_search.json"
+              search_state.parent.mkdir(exist_ok=True)
+
+              def send_photo(image_url, caption=""):
+                  httpx.post(
+                      f"https://api.telegram.org/bot{token}/sendPhoto",
+                      json={"chat_id": chat_id, "photo": image_url, "caption": caption, "parse_mode": "HTML"},
+                      timeout=15,
+                  )
+
+              def send_card(card):
+                  attrs = card.get("attributes", {})
+                  title = attrs.get("title", "?")
+                  images = attrs.get("latest_printing_images", {})
+                  img_url = None
+                  for style in ("nrdb_classic", "nrdb"):
+                      if style in images:
+                          img_url = images[style].get("large") or images[style].get("medium")
+                          break
+                  if img_url:
+                      faction = attrs.get("faction", {}).get("data", {}).get("attributes", {}).get("name", "")
+                      caption = f"<b>{title}</b>"
+                      if faction:
+                          caption += f" — {faction}"
+                      send_photo(img_url, caption)
+                  else:
+                      send(f"🃏 <b>{title}</b>\n(immagine non disponibile)")
+
+              # /card <numero> → selezione da ricerca precedente
+              if args.isdigit():
+                  if search_state.exists():
+                      saved = json.loads(search_state.read_text())
+                      idx = int(args) - 1
+                      if 0 <= idx < len(saved):
+                          send_card(saved[idx])
+                      else:
+                          send(f"❌ Numero non valido. Scegli tra 1 e {len(saved)}.")
+                  else:
+                      send("❌ Nessuna ricerca precedente. Usa /card &lt;nome&gt;.")
+                  sys.exit(0)
+
+              if not args:
+                  send("❌ Uso: /card &lt;nome&gt;\nEsempio: /card hedge fund")
+                  sys.exit(0)
+
+              # Cerca via API v3
+              resp = httpx.get(
+                  "https://api.netrunnerdb.com/api/v3/public/cards",
+                  params={"filter[search]": args, "include": "latest_printing_images"},
+                  timeout=15,
+              )
+              if resp.status_code != 200:
+                  send(f"❌ Errore API NetrunnerDB: HTTP {resp.status_code}")
+                  sys.exit(0)
+
+              data = resp.json().get("data", [])
+              if not data:
+                  send(f"🔍 Nessuna carta trovata per: <b>{args}</b>")
+                  sys.exit(0)
+
+              if len(data) == 1:
+                  send_card(data[0])
+                  search_state.unlink(missing_ok=True)
+              else:
+                  # Salva risultati e manda lista
+                  search_state.write_text(json.dumps(data))
+                  lines = [f"🔍 Trovate <b>{len(data)}</b> carte per «{args}»:\n"]
+                  for i, card in enumerate(data[:10], 1):
+                      attrs = card.get("attributes", {})
+                      title = attrs.get("title", "?")
+                      faction = attrs.get("faction", {}).get("data", {}).get("attributes", {}).get("name", "")
+                      faction_str = f" <i>({faction})</i>" if faction else ""
+                      lines.append(f"{i}. {title}{faction_str}")
+                  if len(data) > 10:
+                      lines.append(f"\n… e altre {len(data)-10}. Affina la ricerca.")
+                  lines.append("\nRispondi con /card &lt;numero&gt; per vedere l'immagine.")
+                  send("\n".join(lines))
+
           elif command in ("/help", "/start"):
               send(
                   "🅿️ <b>Parkbot — comandi disponibili:</b>\n\n"
@@ -158,6 +241,7 @@ jobs:
                   "/list — mostra prenotazioni in coda\n"
                   "/cancel &lt;data&gt; — rimuovi dalla coda\n"
                   "/future — prenotazioni confermate sul portale\n"
+                  "/card &lt;nome&gt; — cerca una carta Netrunner\n"
                   "/help — questo messaggio\n\n"
                   "Date accettate: oggi, domani, dopodomani, lunedì…domenica, gg/mm/aaaa"
               )
@@ -170,10 +254,10 @@ jobs:
         run: |
           git config user.name  "parkbot-actions"
           git config user.email "parkbot@users.noreply.github.com"
-          git add queue/
+          git add queue/ state/
           if git diff --cached --quiet; then
-            echo "Nessuna modifica alla queue"
+            echo "Nessuna modifica"
           else
-            git commit -m "chore: queue update via bot [skip ci]"
+            git commit -m "chore: queue/state update via bot [skip ci]"
             git push
           fi
