@@ -232,12 +232,22 @@ jobs:
                       data, status = search_api(normalized_query)
                       if data is None:
                           data = []
-              # Filtro client-side: ordina per match esatto nel titolo normalizzato
-              if data:
+              # Auto-selezione: se esattamente una carta ha una parola che INIZIA con la query
+              if len(data) > 1:
                   q_norm = strip_accents(args)
+                  word_start_matches = [
+                      c for c in data
+                      if any(w.startswith(q_norm)
+                             for w in strip_accents(c.get("attributes", {}).get("title", "")).split())
+                  ]
+                  if len(word_start_matches) == 1:
+                      data = word_start_matches  # auto-seleziona
+                  elif word_start_matches:
+                      data = word_start_matches  # filtra almeno ai candidati migliori
+                  # Ordina: match esatto prima, poi word-start, poi contiene
                   data.sort(key=lambda c: (
                       0 if strip_accents(c.get("attributes", {}).get("title", "")) == q_norm else
-                      1 if q_norm in strip_accents(c.get("attributes", {}).get("title", "")) else 2
+                      1 if any(w.startswith(q_norm) for w in strip_accents(c.get("attributes", {}).get("title", "")).split()) else 2
                   ))
               if not data:
                   send(f"🔍 Nessuna carta trovata per: <b>{args}</b>")
