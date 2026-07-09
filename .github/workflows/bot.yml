@@ -213,7 +213,7 @@ jobs:
               def search_api(query):
                   r = httpx.get(
                       "https://api.netrunnerdb.com/api/v3/public/cards",
-                      params={"filter[search]": query, "include": "latest_printing_images"},
+                      params={"filter[search]": query},
                       timeout=15,
                   )
                   if r.status_code != 200:
