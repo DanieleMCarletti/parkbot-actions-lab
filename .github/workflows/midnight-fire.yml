@@ -1,11 +1,13 @@
 name: "Midnight Fire — prenotazione automatica parcheggio"
 
 on:
-  # Mezzanotte ora italiana (GitHub Actions usa sempre UTC):
-  #   CEST apr–ott: UTC+2 → mezzanotte = 22:00 UTC  ← attivo ora
-  #   CET  ott–apr: UTC+1 → mezzanotte = 23:00 UTC  ← cambiare in ottobre
+  # Mezzanotte ora italiana (GitHub Actions usa sempre UTC).
+  # In pratica GitHub ritarda i job schedulati di ~60 min nelle ore di punta,
+  # quindi anticipiamo di un'ora per compensare:
+  #   CEST apr–ott: UTC+2 → target 23:00 CEST = 21:00 UTC  ← attivo ora
+  #   CET  ott–apr: UTC+1 → target 23:00 CET  = 22:00 UTC  ← cambiare in ottobre
   schedule:
-    - cron: "0 22 * * *"   # mezzanotte ora italiana (CEST, estate)
+    - cron: "0 21 * * *"   # target 23:00 CEST → arriva ~mezzanotte (CEST, estate)
     - cron: "30 8 * * *"   # TEST: 10:30 CEST — rimuovere dopo il test
   workflow_dispatch:
     inputs:
