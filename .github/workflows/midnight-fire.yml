@@ -10,7 +10,6 @@ on:
     - cron: "0 20 * * *"    # 22:00 CEST → arriva ~00:00-01:00 con ritardo tipico
     - cron: "20 20 * * *"   # 22:20 CEST → arriva ~00:20-01:20
     - cron: "40 20 * * *"   # 22:40 CEST → arriva ~00:40-02:00
-    - cron: "30 8 * * *"    # TEST: 10:30 CEST — rimuovere dopo il test
   workflow_dispatch:
     inputs:
       dry_run:
