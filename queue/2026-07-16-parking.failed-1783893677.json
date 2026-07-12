@@ -1,0 +1,8 @@
+{
+  "date": "2026-07-16",
+  "type": "parking",
+  "source": "manual",
+  "queued_at": "2026-07-08T12:00:00",
+  "error": "http 500: {\n    \"message\": \"Slim Application Error\",\n    \"exception\": [\n        {\n            \"type\": \"TypeError\",\n            \"code\": 0,\n            \"message\": \"Jef\\\\domain\\\\repo\\\\LottoParcheggioRepo::utenteHasLottoParcheggio(): Argument #2 ($idLotto) must be of type int, null given, called in /var/www/vhost",
+  "failed_at": 1783893677.4705944
+}
