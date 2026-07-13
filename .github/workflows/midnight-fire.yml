@@ -78,7 +78,18 @@ jobs:
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
           PARKBOT_STATE_DIR: ${{ github.workspace }}
-        run: parkbot fire
+        run: |
+          for delay in 0 120 240 360; do
+            [ $delay -gt 0 ] && echo "Retry in ${delay}s..." && sleep $delay
+            parkbot fire
+            # Controlla se ci sono ancora entry pendenti (non done/failed)
+            pending=$(find "$PARKBOT_STATE_DIR/queue" -name "*-parking.json" -o -name "*-sn_park.json" -o -name "*-seat.json" 2>/dev/null | wc -l)
+            if [ "$pending" -eq 0 ]; then
+              echo "Nessuna entry pendente — stop retry"
+              break
+            fi
+            echo "${pending} entry ancora pendenti"
+          done
 
       - name: Dry run — skip prenotazioni
         if: ${{ github.event.inputs.dry_run == 'true' }}
