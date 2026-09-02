@@ -4,5 +4,7 @@
   "lot_id": 54,
   "queued_at": 1788213721.6839955,
   "source": "telegram",
-  "sn_sys_id": null
+  "sn_sys_id": null,
+  "error": "http 400: {\"message\":\"Too early.\"}",
+  "failed_at": 1788386443.5703242
 }
