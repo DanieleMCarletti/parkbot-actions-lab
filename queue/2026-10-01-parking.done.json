@@ -4,5 +4,7 @@
   "lot_id": 54,
   "queued_at": 1790467660.907322,
   "source": "telegram",
-  "sn_sys_id": null
+  "sn_sys_id": null,
+  "booking_id": "176124",
+  "completed_at": 1790546477.2346416
 }
