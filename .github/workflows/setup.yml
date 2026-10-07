@@ -1,7 +1,14 @@
 name: "Setup — configurazione iniziale parkbot"
 
-# Eseguire UNA VOLTA dopo aver creato il repo dal template.
-# Salva tutti i secrets, registra il webhook Telegram e verifica che tutto funzioni.
+# Eseguire UNA VOLTA dopo aver creato il repo dal template, DOPO aver già
+# salvato i secrets CF_API_TOKEN e CF_ACCOUNT_ID (Settings -> Secrets and
+# variables -> Actions). Salva tutti gli altri secrets, calcola l'URL del
+# Cloudflare Worker dall'account (nessun copia-incolla manuale dell'URL),
+# registra il webhook Telegram e verifica che tutto funzioni.
+#
+# Il Worker stesso (codice + suoi secrets GITHUB_PAT/ALLOWED_CHAT_ID) va
+# pubblicato DOPO questo workflow, lanciando "Deploy Cloudflare Worker"
+# (deploy-worker.yml) — vedi riepilogo finale.
 
 on:
   workflow_dispatch:
@@ -18,12 +25,8 @@ on:
         description: "Telegram Chat ID (numero intero, es. 228967801)"
         required: true
         type: string
-      cloudflare_worker_url:
-        description: "URL Cloudflare Worker (es. parkbot-webhook.xxx.workers.dev)"
-        required: true
-        type: string
       setup_pat:
-        description: "GitHub PAT temporaneo con scope repo+workflow (serve per salvare i secrets)"
+        description: "GitHub PAT con scope repo+workflow — PERMANENTE: lo userà anche il Worker, non cancellarlo dopo il setup"
         required: true
         type: string
 
@@ -31,6 +34,19 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     steps:
+      - name: Verifica prerequisiti (CF_API_TOKEN / CF_ACCOUNT_ID)
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
+            echo "✗ Mancano i secrets CF_API_TOKEN e/o CF_ACCOUNT_ID."
+            echo "  Creali in Settings -> Secrets and variables -> Actions PRIMA di rilanciare questo workflow."
+            echo "  Vedi README, sezione 'Riepilogo variabili e secrets'."
+            exit 1
+          fi
+          echo "✓ CF_API_TOKEN e CF_ACCOUNT_ID presenti"
+
       - name: Maschera tutti i valori sensibili nei log
         env:
           T1: ${{ github.event.inputs.cognito_refresh_token }}
@@ -47,19 +63,38 @@ jobs:
           VAL_COGNITO:  ${{ github.event.inputs.cognito_refresh_token }}
           VAL_TG_TOKEN: ${{ github.event.inputs.telegram_bot_token }}
           VAL_TG_CHAT:  ${{ github.event.inputs.telegram_chat_id }}
+          VAL_WORKER_PAT: ${{ github.event.inputs.setup_pat }}
         run: |
-          echo "$VAL_COGNITO"  | gh secret set COGNITO_REFRESH_TOKEN  --repo "$GITHUB_REPOSITORY"
-          echo "$VAL_TG_TOKEN" | gh secret set TELEGRAM_BOT_TOKEN     --repo "$GITHUB_REPOSITORY"
-          echo "$VAL_TG_CHAT"  | gh secret set TELEGRAM_CHAT_ID       --repo "$GITHUB_REPOSITORY"
-          echo "✓ Secrets salvati"
+          echo "$VAL_COGNITO"    | gh secret set COGNITO_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY"
+          echo "$VAL_TG_TOKEN"   | gh secret set TELEGRAM_BOT_TOKEN    --repo "$GITHUB_REPOSITORY"
+          echo "$VAL_TG_CHAT"    | gh secret set TELEGRAM_CHAT_ID      --repo "$GITHUB_REPOSITORY"
+          echo "$VAL_WORKER_PAT" | gh secret set WORKER_GITHUB_PAT     --repo "$GITHUB_REPOSITORY"
+          echo "✓ Secrets salvati (incluso WORKER_GITHUB_PAT, permanente, usato dal Worker)"
+
+      - name: Calcola URL del Cloudflare Worker
+        id: worker_url
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          RESP=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/workers/subdomain")
+          SUBDOMAIN=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',{}).get('subdomain',''))" 2>/dev/null)
+          if [ -z "$SUBDOMAIN" ]; then
+            echo "✗ Impossibile leggere il sottodominio workers.dev dall'account Cloudflare."
+            echo "  Risposta API: $RESP"
+            echo "  Assicurati di aver attivato Workers sul tuo account (dash.cloudflare.com -> Workers & Pages, basta aprirla una volta per scegliere il sottodominio)."
+            exit 1
+          fi
+          URL="https://parkbot-webhook.${SUBDOMAIN}.workers.dev"
+          echo "✓ URL Worker: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Registra webhook Telegram
         env:
           BOT_TOKEN:  ${{ github.event.inputs.telegram_bot_token }}
-          WORKER_URL: ${{ github.event.inputs.cloudflare_worker_url }}
+          WORKER_URL: ${{ steps.worker_url.outputs.url }}
         run: |
-          # Normalizza URL
-          [[ "$WORKER_URL" != https://* ]] && WORKER_URL="https://$WORKER_URL"
           echo "Webhook URL: $WORKER_URL"
           RESP=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=${WORKER_URL}")
           echo "Risposta Telegram: $RESP"
@@ -113,20 +148,19 @@ jobs:
           PYEOF
 
       - name: Riepilogo setup
+        env:
+          WORKER_URL: ${{ steps.worker_url.outputs.url }}
         run: |
           echo ""
           echo "================================================"
           echo "  ✅ Setup completato con successo!"
           echo "================================================"
           echo ""
-          echo "Prossimi passi:"
+          echo "Worker URL (già registrata su Telegram): $WORKER_URL"
           echo ""
-          echo "1. Crea il Cloudflare Worker:"
-          echo "   - Vai su dash.cloudflare.com → Workers & Pages → Create Worker"
-          echo "   - Nome: parkbot-webhook"
-          echo "   - Sostituisci il codice con quello in SETUP.md"
-          echo "   - Aggiungi secrets: GITHUB_PAT e ALLOWED_CHAT_ID"
-          echo "   - Deploy"
+          echo "Prossimo passo, UNICO rimasto:"
           echo ""
+          echo "1. Vai su Actions -> 'Deploy Cloudflare Worker' -> Run workflow"
+          echo "   (pubblica codice + secrets del Worker, nessun passaggio su Cloudflare dashboard)"
           echo "2. Manda /start al tuo bot Telegram per verificare"
           echo "3. Poi /help per vedere i comandi disponibili"

@@ -1,5 +1,14 @@
 name: "Deploy Cloudflare Worker"
 
+# Pubblica il Worker (codice + i suoi secrets) interamente da qui — nessun
+# passaggio manuale su dashboard Cloudflare, né per il codice né per i
+# secrets GITHUB_PAT/ALLOWED_CHAT_ID: tutto è letto da secrets GitHub.
+#
+# Prerequisiti (secrets GitHub da creare prima, vedi README):
+#   CF_API_TOKEN, CF_ACCOUNT_ID       — account Cloudflare
+#   WORKER_GITHUB_PAT                 — creato da setup.yml
+#   TELEGRAM_CHAT_ID                  — creato da setup.yml
+
 on:
   push:
     branches: [main]
@@ -22,3 +31,9 @@ jobs:
           # GITHUB_REPO sempre corretto per il repo che esegue l'Action — nessuna
           # modifica manuale di wrangler.toml richiesta nei fork/template.
           command: deploy --var GITHUB_REPO:${{ github.repository }}
+          secrets: |
+            GITHUB_PAT
+            ALLOWED_CHAT_ID
+        env:
+          GITHUB_PAT: ${{ secrets.WORKER_GITHUB_PAT }}
+          ALLOWED_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

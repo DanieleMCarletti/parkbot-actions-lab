@@ -20,91 +20,99 @@ Prenotazione automatica del parcheggio Milanofiori Nord via GitHub Actions + Tel
 
 ## Setup per un nuovo utente
 
-### Prerequisiti (10 minuti)
+Checklist in ordine, da cima a fondo. Nessun passaggio richiede di scrivere o incollare codice: tutto il codice (Worker incluso) resta nel repo, tu fornisci solo credenziali tramite form di GitHub Actions o pagine di creazione account.
 
-**1. Crea il tuo repo da questo template**
+### 1. Account GitHub
 
-Clicca **"Use this template"** → **"Create a new repository"** → nome a scelta, **privato**.
+- Se non hai un account GitHub, creane uno su [github.com/signup](https://github.com/signup).
+- Nella pagina di questo repo, clicca **"Use this template" → "Create a new repository"**, dai un nome a scelta, imposta **privato**, crea.
+- D'ora in poi tutti i passi "Actions" e "Settings → Secrets" si riferiscono al **tuo nuovo repo**, non a questo.
 
-**2. Crea un bot Telegram**
+### 2. Bot Telegram
 
-- Apri Telegram → cerca `@BotFather` → `/newbot`
-- Salva il token (formato `123456789:AABBcc...`)
-- Manda `/start` al tuo nuovo bot
-- Apri `https://api.telegram.org/bot<TOKEN>/getUpdates` → copia il numero `chat.id`
+- Se non hai Telegram, installalo e crea un account.
+- Apri la chat con `@BotFather` → manda `/newbot` → segui le istruzioni → salva il **token** che ti dà (formato `123456789:AABBcc...`).
+- Manda `/start` al tuo nuovo bot (cercalo per nome su Telegram).
+- Apri nel browser `https://api.telegram.org/bot<TOKEN>/getUpdates` (sostituisci `<TOKEN>`) → copia il numero in `"chat":{"id": ...}` → è il tuo **Chat ID**.
 
-**3. Cattura il token MFN dal browser**
+### 3. Token di accesso al portale parcheggi (MFN)
 
-- Apri Edge sul PC Windows → `https://parcheggimilanofiorinord.it/app/login`
-- F12 → Network → Preserve log → fai login con la tua passkey Accenture
-- Filtra per `oauth2/token` → Response → copia `refresh_token` (inizia con `eyJ...`)
+- Apri Edge su un PC Windows → vai su `https://parcheggimilanofiorinord.it/app/login`
+- Premi F12 → tab **Network** → spunta **Preserve log** → fai login con la tua passkey Accenture
+- Nella lista delle richieste cerca quella con `oauth2/token` → tab **Response** → copia il valore di `refresh_token` (stringa lunga che inizia con `eyJ...`)
 
-**4. Crea un GitHub PAT temporaneo per il setup**
+### 4. GitHub Personal Access Token (PAT) — permanente
 
-- Vai su `https://github.com/settings/tokens` → **Generate new token (classic)**
-- Scope: `repo` + `workflow`
-- Copia il token (serve solo per il setup, poi puoi cancellarlo)
+- Vai su [github.com/settings/tokens](https://github.com/settings/tokens) → **Generate new token (classic)**
+- Scope da spuntare: `repo` + `workflow`
+- Genera e copia il token
+- ⚠️ **Non cancellarlo dopo il setup**: oltre a servire per il setup iniziale, resta in uso permanente al Worker Cloudflare per comunicare col tuo repo
 
-**5. Crea il Cloudflare Worker**
+### 5. Account Cloudflare
 
-- Vai su [dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → Create Worker
-- Nome: `parkbot-webhook` → Deploy
-- Apri il file [`worker/worker.js`](worker/worker.js) di **questo repo** (quello nel tuo fork, non una copia incollata qui) e sostituisci con quel contenuto il codice del Worker su Cloudflare
-  > Copia sempre dal file del repo, non da uno snippet salvato altrove: è l'unica versione aggiornata e viene mantenuta in sync col resto del progetto.
-- Settings → Variables and Secrets → **Add variable**, aggiungi questi 3:
+- Se non hai un account Cloudflare, creane uno su [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up) (gratuito)
+- Appena entrato nel dashboard, apri una volta **Workers & Pages** dal menu laterale: la prima volta Cloudflare ti chiede di scegliere un sottodominio `*.workers.dev` — sceglilo e conferma (serve solo questo, non creare manualmente nessun Worker qui)
+- Vai su **My Profile → API Tokens → Create Token** → usa il template **"Edit Cloudflare Workers"** → crea → copia il token generato (è il tuo `CF_API_TOKEN`)
+- Torna alla dashboard principale → nella barra laterale destra trovi il tuo **Account ID** → copialo (è il tuo `CF_ACCOUNT_ID`)
 
-  | Nome | Tipo da selezionare | Valore |
-  |---|---|---|
-  | `GITHUB_PAT` | **Secret** | un GitHub PAT classic con scope `repo`+`workflow` (può essere lo stesso del setup o uno nuovo) |
-  | `ALLOWED_CHAT_ID` | **Secret** | il tuo Telegram Chat ID (numero) |
-  | `GITHUB_REPO` | **Variable** (non secret) | il tuo repo GitHub nel formato `<utente>/<nome-repo>` (es. `MarioRossi/parkbot-actions-lab`) |
+### 6. Salva i 2 secrets Cloudflare su GitHub
 
-- **Deploy**
+Nel tuo repo: **Settings → Secrets and variables → Actions → New repository secret**, crea:
 
-> ℹ️ `GITHUB_REPO` qui è solo per far partire il Worker la prima volta. Appena abiliterai il deploy automatico (`deploy-worker.yml`, passo opzionale più sotto), quella Action sovrascrive `GITHUB_REPO` ad ogni deploy con il valore corretto per il tuo repo — quindi anche se te lo dimentichi o lo sbagli qui, si autocorregge al primo `git push`. `GITHUB_PAT` e `ALLOWED_CHAT_ID` invece, essendo **Secret**, non vengono mai toccati dai deploy automatici: restano quelli che hai impostato qui finché non li cambi tu a mano.
+| Nome secret | Valore |
+|---|---|
+| `CF_API_TOKEN` | il token creato al punto 5 |
+| `CF_ACCOUNT_ID` | l'Account ID copiato al punto 5 |
 
----
+Questi 2 sono l'**unico** inserimento manuale di secrets GitHub richiesto: tutto il resto lo scrivono i workflow nei prossimi due passi.
 
-### Esegui il setup automatico
+### 7. Lancia il workflow di setup
 
-Vai su **Actions → "Setup — configurazione iniziale parkbot" → Run workflow**
+Nel tuo repo: **Actions → "Setup — configurazione iniziale parkbot" → Run workflow**, compila:
 
-Compila i campi:
 | Campo | Valore |
 |---|---|
-| `cognito_refresh_token` | il `refresh_token` catturato dal browser |
-| `telegram_bot_token` | il token del tuo bot Telegram |
-| `telegram_chat_id` | il tuo chat ID Telegram |
-| `cloudflare_worker_url` | es. `parkbot-webhook.xxx.workers.dev` |
-| `setup_pat` | il GitHub PAT temporaneo creato al passo 4 |
+| `cognito_refresh_token` | il `refresh_token` catturato al punto 3 |
+| `telegram_bot_token` | il token del bot creato al punto 2 |
+| `telegram_chat_id` | il Chat ID copiato al punto 2 |
+| `setup_pat` | il PAT permanente creato al punto 4 |
 
-Il workflow salva i secrets, registra il webhook e verifica che tutto funzioni.
+Lancia (**Run workflow**). In automatico: salva tutti i secrets rimanenti, calcola l'URL del tuo Worker Cloudflare e registra il webhook Telegram, verifica che il token MFN funzioni.
+
+### 8. Pubblica il Worker
+
+Nel tuo repo: **Actions → "Deploy Cloudflare Worker" → Run workflow**. Pubblica il codice del Worker e i suoi secrets interamente in automatico — nessun passaggio su dashboard Cloudflare.
+
+### 9. Verifica
+
+Manda `/start` poi `/help` al tuo bot Telegram: se ricevi la lista dei comandi, il setup è completo e funzionante.
 
 ---
 
 ## Riepilogo variabili e secrets
 
+Utile solo come riferimento una volta fatto il setup — **non è un altro elenco di cose da fare**, i passi 1–9 sopra bastano.
+
 **Secrets del repo GitHub** (Settings → Secrets and variables → Actions):
 
-| Nome | Come si imposta | Sopravvive ai deploy/push? |
+| Nome | Chi lo crea |
+|---|---|
+| `CF_API_TOKEN` | tu, manualmente (punto 6) |
+| `CF_ACCOUNT_ID` | tu, manualmente (punto 6) |
+| `COGNITO_REFRESH_TOKEN` | automatico — `setup.yml` (punto 7) |
+| `TELEGRAM_BOT_TOKEN` | automatico — `setup.yml` (punto 7) |
+| `TELEGRAM_CHAT_ID` | automatico — `setup.yml` (punto 7) |
+| `WORKER_GITHUB_PAT` | automatico — `setup.yml` (punto 7), dal PAT inserito nel form |
+
+**Secrets/variabili sul Cloudflare Worker** (gestiti automaticamente da `deploy-worker.yml`, punto 8 — non toccarli mai a mano su dashboard):
+
+| Nome | Tipo | Da dove arriva |
 |---|---|---|
-| `COGNITO_REFRESH_TOKEN` | **automatico** — creato da `setup.yml` | sì, sempre |
-| `TELEGRAM_BOT_TOKEN` | **automatico** — creato da `setup.yml` | sì, sempre |
-| `TELEGRAM_CHAT_ID` | **automatico** — creato da `setup.yml` | sì, sempre |
-| `CF_API_TOKEN` *(opzionale)* | manuale — solo se vuoi il deploy automatico del Worker | sì, sempre |
-| `CF_ACCOUNT_ID` *(opzionale)* | manuale — solo se vuoi il deploy automatico del Worker | sì, sempre |
+| `GITHUB_PAT` | Secret | secret GitHub `WORKER_GITHUB_PAT` |
+| `ALLOWED_CHAT_ID` | Secret | secret GitHub `TELEGRAM_CHAT_ID` |
+| `GITHUB_REPO` | Variable | calcolato da `deploy-worker.yml` (`${{ github.repository }}`) |
 
-I tre secrets obbligatori **non vanno mai inseriti a mano**: li scrive `setup.yml` durante il setup iniziale, usando il PAT temporaneo. `CF_API_TOKEN`/`CF_ACCOUNT_ID` servono solo per abilitare `deploy-worker.yml` (Worker che si aggiorna da solo ad ogni `git push`, invece di incollare il codice a mano da dashboard): si creano su dash.cloudflare.com → My Profile → API Tokens (permesso "Edit Cloudflare Workers") e → barra laterale sotto il nome account.
-
-**Variabili del Cloudflare Worker** (dashboard → `parkbot-webhook` → Settings → Variables and Secrets):
-
-| Nome | Tipo | Come si imposta | Sopravvive ai deploy automatici? |
-|---|---|---|---|
-| `GITHUB_PAT` | Secret | manuale, una volta sola | sì — i Secret non vengono mai toccati da `wrangler deploy` |
-| `ALLOWED_CHAT_ID` | Secret | manuale, una volta sola | sì — stesso motivo |
-| `GITHUB_REPO` | Variable | manuale la prima volta (serve finché non fai il primo deploy via CI) | **no** — da quando abiliti `deploy-worker.yml`, la Action la sovrascrive ad ogni `git push` con `${{ github.repository }}`, sempre corretto per il tuo fork |
-
-Questa distinzione non è un dettaglio: è esattamente il bug che abbiamo scovato durante lo sviluppo — avevamo messo `GITHUB_REPO` come valore fisso prima nel dashboard poi in un file del codice, e un deploy automatico l'avrebbe ogni volta sovrascritta/persa, interrompendo il bot in modo silenzioso. Oggi non serve più preoccuparsene: la Action la imposta da sola.
+Nessuno di questi tre va mai impostato o modificato a mano nel dashboard Cloudflare: ad ogni deploy automatico (passo 8, o ogni `git push` su `worker/**`) `deploy-worker.yml` li riscrive da zero coi valori corretti. Impostarli manualmente da dashboard non avrebbe effetto duraturo — verrebbero sovrascritti al deploy successivo.
 
 ---
 
@@ -145,5 +153,5 @@ worker/
   probe.yml                     # Test connettività API
   midnight-fire.yml             # Job notturno (automatico, 00:00)
   bot.yml                       # Gestione comandi Telegram
-  deploy-worker.yml             # Deploy automatico del Worker (opzionale, vedi sopra)
+  deploy-worker.yml             # Pubblica il Worker (codice + secrets) — passo 8 del setup
 ```
