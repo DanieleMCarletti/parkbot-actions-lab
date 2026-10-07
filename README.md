@@ -89,6 +89,8 @@ export default {
   - `GITHUB_REPO`: il tuo repo GitHub nel formato `<utente>/<nome-repo>` (es. `MarioRossi/parkbot-actions-lab`)
 - Deploy
 
+> ⚠️ Se in futuro userai `deploy-worker.yml` (deploy automatico del Worker via `git push`), aggiungi anche `GITHUB_REPO` in `worker/wrangler.toml` (sezione `[vars]`) col tuo repo. Non essendo un dato sensibile può stare nel file versionato — altrimenti `wrangler deploy` non la gestisce e un deploy da CI può rimuoverla dal Worker (Cloudflare stesso lo segnala nel dashboard).
+
 ---
 
 ### Esegui il setup automatico
@@ -117,7 +119,7 @@ Il workflow salva i secrets, registra il webhook e verifica che tutto funzioni.
 | GitHub (repo secret) | `TELEGRAM_CHAT_ID` | **automatico** — creato da `setup.yml` | sì |
 | Cloudflare Worker (variable) | `GITHUB_PAT` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
 | Cloudflare Worker (variable) | `ALLOWED_CHAT_ID` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
-| Cloudflare Worker (variable) | `GITHUB_REPO` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
+| Cloudflare Worker (variable) | `GITHUB_REPO` | manuale — dashboard, **oppure** `[vars]` in `worker/wrangler.toml` se usi il deploy automatico | sì |
 | GitHub (repo secret) | `CF_API_TOKEN` | manuale — solo se vuoi il deploy automatico del Worker (`deploy-worker.yml`) | no, opzionale |
 | GitHub (repo secret) | `CF_ACCOUNT_ID` | manuale — solo se vuoi il deploy automatico del Worker (`deploy-worker.yml`) | no, opzionale |
 
