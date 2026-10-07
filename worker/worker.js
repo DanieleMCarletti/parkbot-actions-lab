@@ -5,12 +5,18 @@ export default {
     const message = body?.message;
     if (!message) return new Response("OK");
     const chatId = String(message.chat?.id || "");
-    if (chatId !== (env.ALLOWED_CHAT_ID || "NOT_SET")) return new Response("OK");
+    if (chatId !== (env.ALLOWED_CHAT_ID || "NOT_SET")) {
+      console.log(`chat_id mismatch: got "${chatId}", expected "${env.ALLOWED_CHAT_ID || "NOT_SET"}"`);
+      return new Response("OK");
+    }
     const text = (message.text || "").trim();
     if (!text.startsWith("/")) return new Response("OK");
     const parts = text.split(/\s+/);
     const command = (parts[0] || "").toLowerCase().replace(/@\S+$/, "");
     const args = parts.slice(1).join(" ");
+
+    if (!env.GITHUB_REPO) console.log("GITHUB_REPO is not set");
+    if (!env.GITHUB_PAT) console.log("GITHUB_PAT is not set");
 
     const headers = {
       "Authorization": `Bearer ${env.GITHUB_PAT}`,
@@ -19,13 +25,18 @@ export default {
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "parkbot-webhook/1.0",
     };
-    await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
+    const ghResp = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
       method: "POST", headers,
       body: JSON.stringify({
         event_type: "telegram-command",
         client_payload: { command, args, chat_id: chatId },
       }),
     });
+    if (!ghResp.ok) {
+      console.log(`GitHub dispatch failed: HTTP ${ghResp.status} — ${await ghResp.text()}`);
+    } else {
+      console.log(`GitHub dispatch OK for command "${command}"`);
+    }
     return new Response("OK");
   },
 
