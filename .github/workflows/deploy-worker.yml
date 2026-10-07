@@ -19,3 +19,6 @@ jobs:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           workingDirectory: worker
+          # GITHUB_REPO sempre corretto per il repo che esegue l'Action — nessuna
+          # modifica manuale di wrangler.toml richiesta nei fork/template.
+          command: deploy --var GITHUB_REPO:${{ github.repository }}

@@ -40,7 +40,7 @@ Utente → /park giovedì → Telegram → Cloudflare Worker (worker/worker.js)
 | `src/parkbot/booking.py` | chiamate API al portale Milanofiori Nord |
 | `src/parkbot/notify.py` | invio notifiche Telegram (richiede `secrets/telegram.json`) |
 | `src/parkbot/places/*` | integrazione ServiceNow Accenture Places (scrivania + parcheggio Assago) — **disabilitata** (`PLACES_ENABLED = False` in `places/config.py`) perché il portale richiede MFA interattivo ogni ~20 min e non è automatizzabile headless |
-| `worker/worker.js` | Cloudflare Worker: riceve webhook Telegram → inoltra come `repository_dispatch` a GitHub. Il repo target è parametrico via `env.GITHUB_REPO`, definita in `worker/wrangler.toml` (`[vars]`) così resta stabile anche nei deploy automatici via `deploy-worker.yml` |
+| `worker/worker.js` | Cloudflare Worker: riceve webhook Telegram → inoltra come `repository_dispatch` a GitHub. Il repo target è parametrico via `env.GITHUB_REPO`: `deploy-worker.yml` la passa come `--var GITHUB_REPO:${{ github.repository }}` ad ogni deploy via CI (sempre corretta, nessun file da editare per fork/clone); chi pubblica il Worker a mano da dashboard la imposta lì una tantum come Variable |
 | `.github/workflows/midnight-fire.yml` | job notturno: 3 cron sfasati (20:00/20:20/20:40 UTC) per compensare i ritardi di scheduling di GitHub Actions; retry fino a 3 volte; notifica via GitHub Issue (creata e chiusa subito, solo per sfruttare l'email automatica) |
 | `.github/workflows/bot.yml` | gestisce i comandi Telegram (`/park`, `/list`, `/cancel`, `/future`, `/help`) ricevuti via `repository_dispatch` |
 | `.github/workflows/setup.yml` | provisioning one-shot per un nuovo utente: salva i secrets GitHub, registra il webhook Telegram, verifica il token MFN |
@@ -59,7 +59,7 @@ Utente → /park giovedì → Telegram → Cloudflare Worker (worker/worker.js)
 
 ## Gap noti per il riuso multi-utente
 
-1. ~~URL repo hardcoded in `worker.js`~~ — **risolto**: ora letto da `env.GITHUB_REPO`, definita in `worker/wrangler.toml` (non nel dashboard, per non essere persa a un deploy automatico — Cloudflare segnalava esplicitamente il rischio con un banner "update your Wrangler configuration to keep deployments in sync").
+1. ~~URL repo hardcoded in `worker.js`~~ — **risolto in due passaggi**: prima spostato in `env.GITHUB_REPO` (ma messo per errore come valore fisso in `wrangler.toml`, lo stesso problema solo spostato — avrebbe rotto il Worker di chiunque clonasse il template e attivasse il deploy automatico). Soluzione finale: `deploy-worker.yml` passa `--var GITHUB_REPO:${{ github.repository }}` a `wrangler deploy`, quindi è sempre corretto per qualunque fork senza editare nulla. `wrangler.toml` non definisce più `GITHUB_REPO` di proposito (vedi commento nel file).
 2. `DEFAULT_LOT_ID` — chiarito nel README: quasi certamente non va toccato (vedi sopra), da cambiare solo in caso di errore di prenotazione.
 3. Il `scheduled()` handler in `worker.js` (ping di `midnight-fire.yml` da Cloudflare Cron Triggers) non ha un corrispondente `[triggers] crons` in `wrangler.toml` — oggi è codice morto, il cron reale è quello GitHub Actions.
 4. `deploy-worker.yml` richiede i secrets `CF_API_TOKEN`/`CF_ACCOUNT_ID`, mai menzionati in `setup.yml` o nel README — senza quei due secrets il deploy automatico del Worker fallisce silenziosamente (resta valida la via manuale "incolla il codice da dashboard").

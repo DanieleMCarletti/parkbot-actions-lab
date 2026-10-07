@@ -2,5 +2,8 @@ name = "parkbot-webhook"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-[vars]
-GITHUB_REPO = "DanieleMCarletti/parkbot-actions-lab"
+# GITHUB_REPO non è definita qui apposta: se il Worker è deployato da
+# deploy-worker.yml, la Action la passa automaticamente come --var (vedi
+# .github/workflows/deploy-worker.yml) col repo corretto per ogni fork.
+# Se invece pubblichi il Worker a mano da dashboard Cloudflare, impostala
+# lì come Variable (Settings → Variables and Secrets) — vedi README.
