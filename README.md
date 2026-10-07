@@ -49,47 +49,19 @@ Clicca **"Use this template"** → **"Create a new repository"** → nome a scel
 
 - Vai su [dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → Create Worker
 - Nome: `parkbot-webhook` → Deploy
-- Sostituisci il codice con quello qui sotto:
+- Apri il file [`worker/worker.js`](worker/worker.js) di **questo repo** (quello nel tuo fork, non una copia incollata qui) e sostituisci con quel contenuto il codice del Worker su Cloudflare
+  > Copia sempre dal file del repo, non da uno snippet salvato altrove: è l'unica versione aggiornata e viene mantenuta in sync col resto del progetto.
+- Settings → Variables and Secrets → **Add variable**, aggiungi questi 3:
 
-```javascript
-export default {
-  async fetch(request, env) {
-    if (request.method !== "POST") return new Response("OK");
-    const body = await request.json().catch(() => null);
-    const message = body?.message;
-    if (!message) return new Response("OK");
-    const chatId = String(message.chat?.id || "");
-    if (chatId !== (env.ALLOWED_CHAT_ID || "NOT_SET")) return new Response("OK");
-    const text = (message.text || "").trim();
-    const parts = text.split(/\s+/);
-    const command = (parts[0] || "").toLowerCase().replace(/@\S+$/, "");
-    const args = parts.slice(1).join(" ");
-    const headers = {
-      "Authorization": `Bearer ${env.GITHUB_PAT}`,
-      "Accept": "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "parkbot-webhook/1.0",
-    };
-    await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
-      method: "POST", headers,
-      body: JSON.stringify({
-        event_type: "telegram-command",
-        client_payload: { command, args, chat_id: chatId },
-      }),
-    });
-    return new Response("OK");
-  },
-};
-```
+  | Nome | Tipo da selezionare | Valore |
+  |---|---|---|
+  | `GITHUB_PAT` | **Secret** | un GitHub PAT classic con scope `repo`+`workflow` (può essere lo stesso del setup o uno nuovo) |
+  | `ALLOWED_CHAT_ID` | **Secret** | il tuo Telegram Chat ID (numero) |
+  | `GITHUB_REPO` | **Variable** (non secret) | il tuo repo GitHub nel formato `<utente>/<nome-repo>` (es. `MarioRossi/parkbot-actions-lab`) |
 
-- Settings → Variables and Secrets → aggiungi:
-  - `GITHUB_PAT`: un GitHub PAT classic con scope `repo`+`workflow` (può essere lo stesso del setup o uno nuovo)
-  - `ALLOWED_CHAT_ID`: il tuo Telegram Chat ID (numero)
-  - `GITHUB_REPO`: il tuo repo GitHub nel formato `<utente>/<nome-repo>` (es. `MarioRossi/parkbot-actions-lab`)
-- Deploy
+- **Deploy**
 
-> ℹ️ Se in futuro userai `deploy-worker.yml` (deploy automatico del Worker via `git push`), non devi fare nulla in più: la Action passa `GITHUB_REPO` automaticamente col valore corretto per il tuo repo. Il valore impostato qui a mano nel dashboard resta valido solo finché non fai il primo deploy via CI — da quel momento `GITHUB_REPO` è gestita dalla Action, non dal dashboard.
+> ℹ️ `GITHUB_REPO` qui è solo per far partire il Worker la prima volta. Appena abiliterai il deploy automatico (`deploy-worker.yml`, passo opzionale più sotto), quella Action sovrascrive `GITHUB_REPO` ad ogni deploy con il valore corretto per il tuo repo — quindi anche se te lo dimentichi o lo sbagli qui, si autocorregge al primo `git push`. `GITHUB_PAT` e `ALLOWED_CHAT_ID` invece, essendo **Secret**, non vengono mai toccati dai deploy automatici: restano quelli che hai impostato qui finché non li cambi tu a mano.
 
 ---
 
@@ -112,20 +84,27 @@ Il workflow salva i secrets, registra il webhook e verifica che tutto funzioni.
 
 ## Riepilogo variabili e secrets
 
-| Dove | Nome | Come si imposta | Obbligatorio? |
+**Secrets del repo GitHub** (Settings → Secrets and variables → Actions):
+
+| Nome | Come si imposta | Sopravvive ai deploy/push? |
+|---|---|---|
+| `COGNITO_REFRESH_TOKEN` | **automatico** — creato da `setup.yml` | sì, sempre |
+| `TELEGRAM_BOT_TOKEN` | **automatico** — creato da `setup.yml` | sì, sempre |
+| `TELEGRAM_CHAT_ID` | **automatico** — creato da `setup.yml` | sì, sempre |
+| `CF_API_TOKEN` *(opzionale)* | manuale — solo se vuoi il deploy automatico del Worker | sì, sempre |
+| `CF_ACCOUNT_ID` *(opzionale)* | manuale — solo se vuoi il deploy automatico del Worker | sì, sempre |
+
+I tre secrets obbligatori **non vanno mai inseriti a mano**: li scrive `setup.yml` durante il setup iniziale, usando il PAT temporaneo. `CF_API_TOKEN`/`CF_ACCOUNT_ID` servono solo per abilitare `deploy-worker.yml` (Worker che si aggiorna da solo ad ogni `git push`, invece di incollare il codice a mano da dashboard): si creano su dash.cloudflare.com → My Profile → API Tokens (permesso "Edit Cloudflare Workers") e → barra laterale sotto il nome account.
+
+**Variabili del Cloudflare Worker** (dashboard → `parkbot-webhook` → Settings → Variables and Secrets):
+
+| Nome | Tipo | Come si imposta | Sopravvive ai deploy automatici? |
 |---|---|---|---|
-| GitHub (repo secret) | `COGNITO_REFRESH_TOKEN` | **automatico** — creato da `setup.yml` | sì |
-| GitHub (repo secret) | `TELEGRAM_BOT_TOKEN` | **automatico** — creato da `setup.yml` | sì |
-| GitHub (repo secret) | `TELEGRAM_CHAT_ID` | **automatico** — creato da `setup.yml` | sì |
-| Cloudflare Worker (variable) | `GITHUB_PAT` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
-| Cloudflare Worker (variable) | `ALLOWED_CHAT_ID` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
-| Cloudflare Worker (variable) | `GITHUB_REPO` | manuale la prima volta (dashboard) — **gestita in automatico** da `deploy-worker.yml` da quel momento in poi | sì |
-| GitHub (repo secret) | `CF_API_TOKEN` | manuale — solo se vuoi il deploy automatico del Worker (`deploy-worker.yml`) | no, opzionale |
-| GitHub (repo secret) | `CF_ACCOUNT_ID` | manuale — solo se vuoi il deploy automatico del Worker (`deploy-worker.yml`) | no, opzionale |
+| `GITHUB_PAT` | Secret | manuale, una volta sola | sì — i Secret non vengono mai toccati da `wrangler deploy` |
+| `ALLOWED_CHAT_ID` | Secret | manuale, una volta sola | sì — stesso motivo |
+| `GITHUB_REPO` | Variable | manuale la prima volta (serve finché non fai il primo deploy via CI) | **no** — da quando abiliti `deploy-worker.yml`, la Action la sovrascrive ad ogni `git push` con `${{ github.repository }}`, sempre corretto per il tuo fork |
 
-I tre secrets GitHub obbligatori **non vanno mai inseriti a mano** in Settings → Secrets: li scrive `setup.yml` durante il setup iniziale, usando il PAT temporaneo. Le tre variabili Cloudflare vanno invece sempre impostate a mano nel dashboard del Worker, perché il setup automatico non ha accesso a Cloudflare.
-
-Se invece vuoi che il Worker si aggiorni da solo ad ogni `git push` (anziché incollare il codice a mano da dashboard), crea anche `CF_API_TOKEN` (dash.cloudflare.com → My Profile → API Tokens, permesso "Edit Cloudflare Workers") e `CF_ACCOUNT_ID` (dash.cloudflare.com → barra laterale, sotto il nome account) come secrets GitHub.
+Questa distinzione non è un dettaglio: è esattamente il bug che abbiamo scovato durante lo sviluppo — avevamo messo `GITHUB_REPO` come valore fisso prima nel dashboard poi in un file del codice, e un deploy automatico l'avrebbe ogni volta sovrascritta/persa, interrompendo il bot in modo silenzioso. Oggi non serve più preoccuparsene: la Action la imposta da sola.
 
 ---
 
@@ -158,9 +137,13 @@ Quando il bot avvisa che il token è scaduto: [segui questa guida](https://gist.
 ```
 queue/                          # Prenotazioni pendenti/completate/fallite
 src/parkbot/                    # Codice parkbot (da milanofiori_automation)
+worker/
+  worker.js                     # Cloudflare Worker — webhook Telegram -> GitHub
+  wrangler.toml                 # Config del Worker (nessun secret/valore d'ambiente qui)
 .github/workflows/
   setup.yml                     # Setup iniziale (eseguire una volta)
   probe.yml                     # Test connettività API
   midnight-fire.yml             # Job notturno (automatico, 00:00)
   bot.yml                       # Gestione comandi Telegram
+  deploy-worker.yml             # Deploy automatico del Worker (opzionale, vedi sopra)
 ```
