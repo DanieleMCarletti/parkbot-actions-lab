@@ -19,7 +19,7 @@ export default {
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "parkbot-webhook/1.0",
     };
-    await fetch("https://api.github.com/repos/DanieleMCarletti/parkbot-actions-lab/dispatches", {
+    await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
       method: "POST", headers,
       body: JSON.stringify({
         event_type: "telegram-command",
@@ -37,7 +37,7 @@ export default {
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "parkbot-webhook/1.0",
     };
-    await fetch("https://api.github.com/repos/DanieleMCarletti/parkbot-actions-lab/actions/workflows/midnight-fire.yml/dispatches", {
+    await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/midnight-fire.yml/dispatches`, {
       method: "POST", headers,
       body: JSON.stringify({ ref: "main" }),
     });

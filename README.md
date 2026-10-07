@@ -71,7 +71,7 @@ export default {
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "parkbot-webhook/1.0",
     };
-    await fetch("https://api.github.com/repos/<TUO_USERNAME>/<TUO_REPO>/dispatches", {
+    await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
       method: "POST", headers,
       body: JSON.stringify({
         event_type: "telegram-command",
@@ -83,11 +83,10 @@ export default {
 };
 ```
 
-> ⚠️ Sostituisci `<TUO_USERNAME>/<TUO_REPO>` con il tuo repo GitHub (es. `MarioRossi/parkbot-actions-lab`)
-
 - Settings → Variables and Secrets → aggiungi:
   - `GITHUB_PAT`: un GitHub PAT classic con scope `repo`+`workflow` (può essere lo stesso del setup o uno nuovo)
   - `ALLOWED_CHAT_ID`: il tuo Telegram Chat ID (numero)
+  - `GITHUB_REPO`: il tuo repo GitHub nel formato `<utente>/<nome-repo>` (es. `MarioRossi/parkbot-actions-lab`)
 - Deploy
 
 ---
@@ -109,6 +108,25 @@ Il workflow salva i secrets, registra il webhook e verifica che tutto funzioni.
 
 ---
 
+## Riepilogo variabili e secrets
+
+| Dove | Nome | Come si imposta | Obbligatorio? |
+|---|---|---|---|
+| GitHub (repo secret) | `COGNITO_REFRESH_TOKEN` | **automatico** — creato da `setup.yml` | sì |
+| GitHub (repo secret) | `TELEGRAM_BOT_TOKEN` | **automatico** — creato da `setup.yml` | sì |
+| GitHub (repo secret) | `TELEGRAM_CHAT_ID` | **automatico** — creato da `setup.yml` | sì |
+| Cloudflare Worker (variable) | `GITHUB_PAT` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
+| Cloudflare Worker (variable) | `ALLOWED_CHAT_ID` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
+| Cloudflare Worker (variable) | `GITHUB_REPO` | manuale — dashboard Worker → Settings → Variables and Secrets | sì |
+| GitHub (repo secret) | `CF_API_TOKEN` | manuale — solo se vuoi il deploy automatico del Worker (`deploy-worker.yml`) | no, opzionale |
+| GitHub (repo secret) | `CF_ACCOUNT_ID` | manuale — solo se vuoi il deploy automatico del Worker (`deploy-worker.yml`) | no, opzionale |
+
+I tre secrets GitHub obbligatori **non vanno mai inseriti a mano** in Settings → Secrets: li scrive `setup.yml` durante il setup iniziale, usando il PAT temporaneo. Le tre variabili Cloudflare vanno invece sempre impostate a mano nel dashboard del Worker, perché il setup automatico non ha accesso a Cloudflare.
+
+Se invece vuoi che il Worker si aggiorni da solo ad ogni `git push` (anziché incollare il codice a mano da dashboard), crea anche `CF_API_TOKEN` (dash.cloudflare.com → My Profile → API Tokens, permesso "Edit Cloudflare Workers") e `CF_ACCOUNT_ID` (dash.cloudflare.com → barra laterale, sotto il nome account) come secrets GitHub.
+
+---
+
 ## Comandi Telegram
 
 | Comando | Descrizione |
@@ -122,6 +140,10 @@ Il workflow salva i secrets, registra il webhook e verifica che tutto funzioni.
 Date accettate: `oggi`, `domani`, `dopodomani`, `lunedì`…`domenica`, `gg/mm`, `gg/mm/aaaa`
 
 ---
+
+## Lotto di parcheggio (`lot_id`)
+
+Il codice usa un `lot_id` di default (`DEFAULT_LOT_ID` in `src/parkbot/config.py`) che identifica il *lotto/area* di parcheggio ad assegnazione automatica — non uno stallo specifico (quello lo sceglie sempre il portale, come quando prenoti manualmente). Se un nuovo utente ha un profilo associato a un lotto diverso, le prenotazioni falliranno con un errore del portale pur con token valido: in quel caso va catturato il proprio `lotti_parcheggio_id` dal Network tab del browser (stesso procedimento usato per il `refresh_token`, cercando la richiesta `POST /prenotazioni`) e passato come override (`--lot-id`).
 
 ## Rinnovo token MFN (~30 giorni)
 
