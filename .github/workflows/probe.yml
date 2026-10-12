@@ -132,6 +132,20 @@ jobs:
                             f"'{spot}' in posti? {spot in codes}")
                       if lot.get("posti"):
                           print(f"  chiavi di un elemento posti[0]: {sorted(lot['posti'][0].keys())}")
+                      print(f"  postiDisponibili: {lot.get('postiDisponibili')}")
+
+          print("")
+          print("=== postiDisponibili su TUTTI i giorni della finestra ===")
+          d = __import__('datetime').date.fromisoformat(window.min_date)
+          end = __import__('datetime').date.fromisoformat(window.max_date)
+          while d <= end:
+              iso = d.isoformat()
+              lots = check_availability(iso, token=bundle)
+              for lot in lots:
+                  if lot.get("id") == 54:
+                      print(f"  {iso}: postiDisponibili={lot.get('postiDisponibili')}  "
+                            f"n_posti={lot.get('n_posti')}  in not_available={iso in window.not_available}")
+              d += __import__('datetime').timedelta(days=1)
 
           print("")
           print("=== BookingWindow.not_available (unico segnale di 'pieno' a livello data) ===")
