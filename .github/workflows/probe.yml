@@ -96,3 +96,22 @@ jobs:
               print("✗ Portale non raggiungibile o risposta inattesa")
               sys.exit(1)
           EOF
+
+      - name: Ispeziona /parcheggi-disponibili (diagnostico — struttura mai documentata)
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+        run: |
+          python3 - << 'EOF'
+          import json, os
+          os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
+          from parkbot.tokens import get_access_token
+          from parkbot.booking import get_booking_window, check_availability
+
+          bundle = get_access_token()
+          window = get_booking_window(token=bundle)
+          print(f"Finestra prenotabile: {window.min_date} .. {window.max_date}")
+
+          data = check_availability(window.max_date, token=bundle)
+          print(f"=== check_availability({window.max_date}) — struttura risposta ===")
+          print(json.dumps(data, indent=2, ensure_ascii=False)[:3000])
+          EOF
