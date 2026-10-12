@@ -124,12 +124,15 @@ Nessuno di questi tre va mai impostato o modificato a mano nel dashboard Cloudfl
 | `/list` | Mostra coda e prenotazioni confermate |
 | `/future` | Prenotazioni confermate sul portale |
 | `/cancel <data>` | Rimuovi dalla coda (non tocca prenotazioni già confermate sul portale) |
+| `/spots` | Posti liberi, giorno per giorno, in tutta la finestra prenotabile attuale |
 | `/tokenstatus` | Verifica se il token MFN è ancora valido e, se noto, la data di scadenza esatta — utile prima di partire per le ferie |
 | `/help` | Lista comandi |
 
 Date accettate: `oggi`, `domani`, `dopodomani`, `lunedì`…`domenica`, `gg/mm`, `gg/mm/aaaa`
 
 `/park` prova prima la prenotazione immediata perché il portale accetta prenotazioni solo entro una finestra di qualche giorno in avanti (si allarga di un giorno ogni notte): se la data richiesta è già dentro quella finestra, succede tutto all'istante; se è troppo lontana nel tempo, resta in coda — non c'è modo di "bypassare" il limite imposto dal portale stesso.
+
+Il portale Milanofiori Nord permette **una sola prenotazione attiva alla volta** (è lo stesso motivo per cui a volte il pulsante "prenota" è grigio sull'app): se hai già una prenotazione confermata per un'altra data, `/park` lo segnala chiaramente invece di dire genericamente "nessun posto", mette comunque la nuova data in coda, e riprova automaticamente ogni notte finché la prenotazione attuale non "si consuma" (passa la sua data).
 
 ---
 

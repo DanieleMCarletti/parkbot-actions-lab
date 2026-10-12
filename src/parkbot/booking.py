@@ -6,7 +6,7 @@ the API trusts the Authorization header alone.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date as _date
+from datetime import date as _date, timedelta
 from typing import Optional
 
 import httpx
@@ -178,7 +178,7 @@ def get_booking_window(token: Optional[TokenBundle] = None) -> BookingWindow:
 class ImmediateBookingResult:
     """Outcome of a same-second booking attempt (as opposed to the queue+midnight-fire path).
 
-    outcome: "booked" | "past" | "waiting" | "unavailable" | "error"
+    outcome: "booked" | "past" | "waiting" | "unavailable" | "active_booking_conflict" | "error"
     """
     outcome: str
     detail: str
@@ -186,6 +186,7 @@ class ImmediateBookingResult:
     spot: Optional[str] = None
     available: Optional[int] = None   # free spots left in the lot, right after booking
     capacity: Optional[int] = None    # total spots in the lot
+    conflict_date: Optional[str] = None  # set only for "active_booking_conflict"
 
 
 def try_book_now(
@@ -219,9 +220,23 @@ def try_book_now(
     result = book_parking(target_date, lot_id=lot_id, token=token)
     if not result.success:
         if result.status_code == 404 and "disponibil" in result.body.lower():
-            # Same transient edge case handled in cli._fire_parking_entry: the window
-            # says bookable but the portal enforces "one active booking at a time".
-            return ImmediateBookingResult("unavailable", "nessun posto disponibile al momento")
+            # NOT a capacity issue, even though the portal's error text says
+            # "non disponibile" — the window said bookable, so the lot has room.
+            # This 404 means the account already has an active/future booking and
+            # the portal only allows one at a time (same app-side rule that greys
+            # out the "prenota" button for other dates). It clears itself once the
+            # current active booking's date passes — see cli._fire_parking_entry.
+            conflict_date = None
+            try:
+                existing = list_future_bookings(token=token)
+                if existing:
+                    conflict_date = existing[0].get("data") or existing[0].get("date")
+            except Exception:
+                pass
+            detail = "hai già una prenotazione attiva sul portale (ne è permessa una sola alla volta)"
+            if conflict_date:
+                detail += f" — per il {conflict_date}"
+            return ImmediateBookingResult("active_booking_conflict", detail, conflict_date=conflict_date)
         return ImmediateBookingResult("error", f"http {result.status_code}: {result.body[:200]}")
 
     spot = None
@@ -247,3 +262,39 @@ def try_book_now(
         "booked", "prenotato", booking_id=result.booking_id,
         spot=spot, available=available, capacity=capacity,
     )
+
+
+def list_window_availability(
+    *, lot_id: int = config.DEFAULT_LOT_ID, token: Optional[TokenBundle] = None,
+) -> list[dict]:
+    """Posti liberi per ogni giorno della finestra prenotabile attuale (min_date..max_date).
+
+    Una chiamata API per giorno (la finestra è sempre pochi giorni, non è un problema).
+    Ogni voce: {"date": "YYYY-MM-DD", "available": int | None, "capacity": int | None}
+    — None se il lotto `lot_id` non compare nella risposta per quel giorno (non
+    dovrebbe succedere, ma l'API ha già mostrato inconsistenze al bordo finestra).
+    """
+    if token is None:
+        token = get_access_token()
+
+    window = get_booking_window(token=token)
+    start = _date.fromisoformat(window.min_date)
+    end = _date.fromisoformat(window.max_date)
+
+    results = []
+    d = start
+    while d <= end:
+        iso = d.isoformat()
+        available = capacity = None
+        try:
+            for lot in check_availability(iso, token=token):
+                if lot.get("id") == lot_id:
+                    capacity = lot.get("n_posti")
+                    available = len(lot.get("posti") or [])
+                    break
+        except Exception:
+            pass
+        results.append({"date": iso, "available": available, "capacity": capacity})
+        d += timedelta(days=1)
+
+    return results

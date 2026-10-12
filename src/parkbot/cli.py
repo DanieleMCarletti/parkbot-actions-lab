@@ -95,6 +95,14 @@ def _cmd_availability(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_spots(_args: argparse.Namespace) -> int:
+    rows = booking.list_window_availability()
+    for row in rows:
+        avail = f"{row['available']}/{row['capacity']}" if row["available"] is not None else "n/d"
+        print(f"{row['date']}  {avail}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # fire — unified queue processor (runs at midnight via Windows Task Scheduler)
 # ---------------------------------------------------------------------------
@@ -462,6 +470,8 @@ def main() -> int:
     p_av = sub.add_parser("availability", help="disponibilità Milanofiori Nord")
     p_av.add_argument("date")
 
+    sub.add_parser("spots", help="posti liberi per ogni giorno della finestra prenotabile")
+
     sub.add_parser("fire", help="processa coda (entry point cron)")
     sub.add_parser("sn-keepalive", help="ping SN per mantenere la sessione attiva (ogni 25 min)")
     sub.add_parser("serve-bot", help="avvia il bot Telegram (long-running)")
@@ -478,6 +488,7 @@ def main() -> int:
         "list-queue": _cmd_list_queue,
         "future": _cmd_future,
         "availability": _cmd_availability,
+        "spots": _cmd_spots,
         "fire": _cmd_fire,
         "sn-keepalive": _cmd_sn_keepalive,
         "serve-bot": _cmd_serve_bot,

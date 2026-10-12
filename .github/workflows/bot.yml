@@ -55,7 +55,7 @@ jobs:
 
           os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
           from parkbot import config, dateparse
-          from parkbot.booking import list_future_bookings, try_book_now
+          from parkbot.booking import list_future_bookings, try_book_now, list_window_availability
           from parkbot.tokens import get_access_token, check_token_status, TokenError
           from parkbot import queue as q
 
@@ -131,6 +131,18 @@ jobs:
                   send(f"❌ <b>{display}</b> è una data passata, non aggiunta in coda.")
                   sys.exit(0)
 
+              if attempt and attempt.outcome == "active_booking_conflict":
+                  conflict_display = (dateparse.to_display(attempt.conflict_date)
+                                      if attempt.conflict_date else "un'altra data")
+                  q.queue_booking(iso, "parking", source="telegram")
+                  send_status([
+                      f"⏳ Hai già una prenotazione attiva per <b>{conflict_display}</b> — "
+                      f"il portale ne permette una sola alla volta.\n"
+                      f"<b>{display}</b> aggiunto in coda, riproverò automaticamente "
+                      f"appena si libera."
+                  ])
+                  sys.exit(0)
+
               _, created = q.queue_booking(iso, "parking", source="telegram")
               reason = {
                   "waiting": "fuori dalla finestra prenotabile, ",
@@ -178,6 +190,25 @@ jobs:
               except Exception as e:
                   send(f"❌ Errore API: {e}")
 
+          elif command in ("/spots", "/disponibilita"):
+              try:
+                  bundle = get_access_token()
+                  rows = list_window_availability(token=bundle)
+              except Exception as e:
+                  send(f"❌ Errore nel controllare la disponibilità: {e}")
+                  sys.exit(0)
+              if not rows:
+                  send("📊 Nessun giorno nella finestra prenotabile al momento.")
+              else:
+                  lines = ["📊 <b>Posti liberi nella finestra prenotabile:</b>"]
+                  for row in rows:
+                      d_display = dateparse.to_display(row["date"])
+                      if row["available"] is not None:
+                          lines.append(f"  • {d_display}: <b>{row['available']}/{row['capacity']}</b>")
+                      else:
+                          lines.append(f"  • {d_display}: dato non disponibile")
+                  send("\n".join(lines))
+
           elif command in ("/tokenstatus", "/token"):
               status = check_token_status()
               if status.valid:
@@ -207,6 +238,7 @@ jobs:
                   "/list — mostra prenotazioni in coda\n"
                   "/cancel &lt;data&gt; — rimuovi dalla coda\n"
                   "/future — prenotazioni confermate sul portale\n"
+                  "/spots — posti liberi nei giorni della finestra prenotabile\n"
                   "/tokenstatus — verifica validità e scadenza del token MFN\n"
                   "/help — questo messaggio\n\n"
                   "Date accettate: oggi, domani, dopodomani, lunedì…domenica, gg/mm/aaaa"
