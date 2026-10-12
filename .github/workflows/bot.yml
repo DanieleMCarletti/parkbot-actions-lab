@@ -207,6 +207,10 @@ jobs:
                           lines.append(f"  • {d_display}: <b>{row['available']}/{row['capacity']}</b>")
                       else:
                           lines.append(f"  • {d_display}: dato non disponibile")
+                  if any(r["available"] == 0 for r in rows):
+                      lines.append("")
+                      lines.append("ℹ️ Uno 0 può significare lotto pieno, oppure che hai già "
+                                   "una prenotazione attiva che blocca nuove date (vedi /future).")
                   send("\n".join(lines))
 
           elif command in ("/tokenstatus", "/token"):

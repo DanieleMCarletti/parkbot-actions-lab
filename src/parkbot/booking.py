@@ -253,7 +253,10 @@ def try_book_now(
         for lot in check_availability(target_date, token=token):
             if lot.get("id") == lot_id:
                 capacity = lot.get("n_posti")
-                available = len(lot.get("posti") or [])
+                # NOTE: "posti" is the lot's fixed catalog of spot codes (always
+                # len == n_posti, includes already-booked spots) — NOT who's free.
+                # "postiDisponibili" is the actual free-right-now list.
+                available = len(lot.get("postiDisponibili") or [])
                 break
     except Exception:
         pass
@@ -290,7 +293,8 @@ def list_window_availability(
             for lot in check_availability(iso, token=token):
                 if lot.get("id") == lot_id:
                     capacity = lot.get("n_posti")
-                    available = len(lot.get("posti") or [])
+                    # see try_book_now: "posti" is the fixed catalog, not what's free
+                    available = len(lot.get("postiDisponibili") or [])
                     break
         except Exception:
             pass
