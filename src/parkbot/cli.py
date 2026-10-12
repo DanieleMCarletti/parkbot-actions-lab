@@ -37,6 +37,20 @@ def _cmd_token(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_token_status(_args: argparse.Namespace) -> int:
+    status = tokens.check_token_status()
+    print(f"valid={status.valid}")
+    if status.error:
+        print(f"error={status.error}")
+    if status.expires_at:
+        from datetime import datetime, timezone
+        dt = datetime.fromtimestamp(status.expires_at, tz=timezone.utc)
+        print(f"refresh_token exp={dt.isoformat()}")
+    else:
+        print("refresh_token exp=unknown (token non decodificabile)")
+    return 0 if status.valid else 1
+
+
 def _cmd_book(args: argparse.Namespace) -> int:
     try:
         result = booking.book_parking(args.date, lot_id=args.lot_id)
@@ -430,6 +444,7 @@ def main() -> int:
     sub.add_parser("bootstrap-wslg", help="[legacy] login via WSLg Chromium (freezes PC)")
     sub.add_parser("places-bootstrap", help="login ServiceNow places (SAML)")
     sub.add_parser("token", help="stampa access_token Cognito (debug)")
+    sub.add_parser("token-status", help="verifica validità refresh_token + scadenza se nota")
 
     p_book = sub.add_parser("book", help="prenota subito su Milanofiori Nord")
     p_book.add_argument("date")
@@ -457,6 +472,7 @@ def main() -> int:
         "bootstrap-wslg": _cmd_bootstrap_wslg,
         "places-bootstrap": _cmd_places_bootstrap,
         "token": _cmd_token,
+        "token-status": _cmd_token_status,
         "book": _cmd_book,
         "queue": _cmd_queue,
         "list-queue": _cmd_list_queue,

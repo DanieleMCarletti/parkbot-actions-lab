@@ -172,3 +172,78 @@ def get_booking_window(token: Optional[TokenBundle] = None) -> BookingWindow:
         max_date=data["maxDate"],
         not_available=data.get("notAvailable", []) or [],
     )
+
+
+@dataclass
+class ImmediateBookingResult:
+    """Outcome of a same-second booking attempt (as opposed to the queue+midnight-fire path).
+
+    outcome: "booked" | "past" | "waiting" | "unavailable" | "error"
+    """
+    outcome: str
+    detail: str
+    booking_id: Optional[int] = None
+    spot: Optional[str] = None
+    available: Optional[int] = None   # free spots left in the lot, right after booking
+    capacity: Optional[int] = None    # total spots in the lot
+
+
+def try_book_now(
+    target_date: str | _date,
+    *,
+    lot_id: int = config.DEFAULT_LOT_ID,
+    token: Optional[TokenBundle] = None,
+) -> ImmediateBookingResult:
+    """Attempt to book `target_date` right now, instead of waiting for the midnight cron.
+
+    Only succeeds if the date is already inside the portal's bookable window (see
+    BookingWindow) — the portal itself refuses bookings outside it, there's no way
+    around that. Use `queue.queue_booking` + the nightly `fire` job for dates still
+    out of window.
+    """
+    if isinstance(target_date, _date):
+        target_date = target_date.isoformat()
+    if token is None:
+        token = get_access_token()
+
+    window = get_booking_window(token=token)
+    state = window.status(target_date)
+
+    if state == "past":
+        return ImmediateBookingResult("past", f"data passata (min {window.min_date})")
+    if state == "waiting":
+        return ImmediateBookingResult("waiting", f"fuori finestra (apre entro il {window.max_date})")
+    if state == "unavailable":
+        return ImmediateBookingResult("unavailable", "nessun posto disponibile (segnalato dal portale)")
+
+    result = book_parking(target_date, lot_id=lot_id, token=token)
+    if not result.success:
+        if result.status_code == 404 and "disponibil" in result.body.lower():
+            # Same transient edge case handled in cli._fire_parking_entry: the window
+            # says bookable but the portal enforces "one active booking at a time".
+            return ImmediateBookingResult("unavailable", "nessun posto disponibile al momento")
+        return ImmediateBookingResult("error", f"http {result.status_code}: {result.body[:200]}")
+
+    spot = None
+    try:
+        for b in list_future_bookings(token=token):
+            if (b.get("data") or b.get("date")) == target_date:
+                spot = b.get("posti_codice")
+                break
+    except Exception:
+        pass
+
+    available = capacity = None
+    try:
+        for lot in check_availability(target_date, token=token):
+            if lot.get("id") == lot_id:
+                capacity = lot.get("n_posti")
+                available = len(lot.get("posti") or [])
+                break
+    except Exception:
+        pass
+
+    return ImmediateBookingResult(
+        "booked", "prenotato", booking_id=result.booking_id,
+        spot=spot, available=available, capacity=capacity,
+    )

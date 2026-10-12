@@ -9,6 +9,7 @@ each process invocation mints a fresh one, which takes ~300 ms over the network.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
@@ -141,3 +142,54 @@ def get_access_token(*, http_timeout: float = 10.0) -> TokenBundle:
         _write_disk_tokens(disk)
 
     return bundle
+
+
+def _decode_jwt_exp(token: str) -> Optional[float]:
+    """Best-effort: if `token` looks like a JWT, return its `exp` claim (unix epoch).
+
+    No signature verification — we only ever read our own stored refresh_token to
+    show the user its expiry, never to authorize anything. Returns None if the
+    token isn't 3-segment base64url JSON (e.g. an opaque Cognito token) or has no
+    `exp` claim — callers must treat that as "expiry unknown", not an error.
+    """
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        segment = parts[1]
+        padded = segment + "=" * (-len(segment) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+        exp = payload.get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:
+        return None
+
+
+@dataclass
+class TokenStatus:
+    valid: bool
+    error: Optional[str] = None
+    expires_at: Optional[float] = None  # refresh_token's own exp claim, if decodable
+
+
+def check_token_status() -> TokenStatus:
+    """Check whether the stored refresh_token still works, without minting an
+    access_token the caller actually needs for anything else.
+
+    Also attempts to read the refresh_token's own expiry (see `_decode_jwt_exp`) so
+    callers can warn "renew before you leave for vacation" ahead of time, not just
+    react after it's already dead.
+    """
+    try:
+        disk = _read_disk_tokens()
+    except TokenError as e:
+        return TokenStatus(valid=False, error=str(e))
+
+    expires_at = _decode_jwt_exp(disk.get("refresh_token", ""))
+
+    try:
+        get_access_token()
+    except TokenError as e:
+        return TokenStatus(valid=False, error=str(e), expires_at=expires_at)
+
+    return TokenStatus(valid=True, expires_at=expires_at)

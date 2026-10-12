@@ -120,13 +120,16 @@ Nessuno di questi tre va mai impostato o modificato a mano nel dashboard Cloudfl
 
 | Comando | Descrizione |
 |---|---|
-| `/park <data>` | Aggiungi prenotazione (es. `/park giovedì`, `/park 22/07`) |
+| `/park <data>` | Prenota — **subito** se la data è già nella finestra prenotabile del portale (risposta immediata con posto assegnato e posti liberi rimasti), altrimenti aggiunta in coda e ritentata ogni notte |
 | `/list` | Mostra coda e prenotazioni confermate |
 | `/future` | Prenotazioni confermate sul portale |
-| `/cancel <data>` | Rimuovi dalla coda |
+| `/cancel <data>` | Rimuovi dalla coda (non tocca prenotazioni già confermate sul portale) |
+| `/tokenstatus` | Verifica se il token MFN è ancora valido e, se noto, la data di scadenza esatta — utile prima di partire per le ferie |
 | `/help` | Lista comandi |
 
 Date accettate: `oggi`, `domani`, `dopodomani`, `lunedì`…`domenica`, `gg/mm`, `gg/mm/aaaa`
+
+`/park` prova prima la prenotazione immediata perché il portale accetta prenotazioni solo entro una finestra di qualche giorno in avanti (si allarga di un giorno ogni notte): se la data richiesta è già dentro quella finestra, succede tutto all'istante; se è troppo lontana nel tempo, resta in coda — non c'è modo di "bypassare" il limite imposto dal portale stesso.
 
 ---
 

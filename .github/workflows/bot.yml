@@ -55,8 +55,8 @@ jobs:
 
           os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
           from parkbot import config, dateparse
-          from parkbot.booking import list_future_bookings
-          from parkbot.tokens import get_access_token
+          from parkbot.booking import list_future_bookings, try_book_now
+          from parkbot.tokens import get_access_token, check_token_status, TokenError
           from parkbot import queue as q
 
           command = os.environ.get("COMMAND", "").lower().strip()
@@ -106,11 +106,41 @@ jobs:
               except Exception:
                   send(f"❌ Data non riconosciuta: <b>{args}</b>")
                   sys.exit(0)
+
+              display = dateparse.to_display(iso)
+
+              # Prova a prenotare SUBITO (il portale lo permette solo se la data è
+              # già dentro la finestra prenotabile) invece di aspettare sempre la
+              # coda/mezzanotte. Se non si può (fuori finestra, pieno, errore, o
+              # token non disponibile) si ricade sul comportamento classico: coda.
+              attempt = None
+              try:
+                  bundle = get_access_token()
+                  attempt = try_book_now(iso, token=bundle)
+              except TokenError as e:
+                  print(f"WARN: token non disponibile per tentativo immediato ({e})")
+
+              if attempt and attempt.outcome == "booked":
+                  spot_line = f"\n📍 Posto: <b>{attempt.spot}</b>" if attempt.spot else ""
+                  avail_line = (f"\n📊 Posti liberi rimasti: {attempt.available}/{attempt.capacity}"
+                                if attempt.available is not None else "")
+                  send(f"✅ Prenotato subito per <b>{display}</b>!{spot_line}{avail_line}")
+                  sys.exit(0)
+
+              if attempt and attempt.outcome == "past":
+                  send(f"❌ <b>{display}</b> è una data passata, non aggiunta in coda.")
+                  sys.exit(0)
+
               _, created = q.queue_booking(iso, "parking", source="telegram")
+              reason = {
+                  "waiting": "fuori dalla finestra prenotabile, ",
+                  "unavailable": "nessun posto libero al momento, ",
+                  "error": "errore temporaneo dal portale, ",
+              }.get(attempt.outcome if attempt else None, "")
               if created:
-                  send_status([f"✅ Aggiunto in coda: <b>{dateparse.to_display(iso)}</b>"])
+                  send_status([f"⏳ {reason}aggiunto in coda: <b>{display}</b> — riprovo stanotte"])
               else:
-                  send_status([f"ℹ️ <b>{dateparse.to_display(iso)}</b> era già in coda."])
+                  send_status([f"ℹ️ <b>{display}</b> era già in coda."])
 
           elif command == "/list":
               send_status(["📋 <b>Stato prenotazioni:</b>"])
@@ -148,13 +178,36 @@ jobs:
               except Exception as e:
                   send(f"❌ Errore API: {e}")
 
+          elif command in ("/tokenstatus", "/token"):
+              status = check_token_status()
+              if status.valid:
+                  lines = ["✅ <b>Token MFN valido</b>"]
+              else:
+                  lines = [f"⚠️ <b>Token MFN NON valido</b>\n{status.error}\n"
+                           f"👉 <a href=\"https://gist.github.com/DanieleMCarletti/f72f1843f08c77a9bf8f96813e57a7dd\">Come rinnovare il token</a>"]
+              if status.expires_at:
+                  from datetime import datetime, timezone
+                  try:
+                      from zoneinfo import ZoneInfo
+                      tz = ZoneInfo("Europe/Rome")
+                  except Exception:
+                      tz = timezone.utc
+                  dt = datetime.fromtimestamp(status.expires_at, tz=timezone.utc).astimezone(tz)
+                  days_left = (dt.date() - datetime.now(tz).date()).days
+                  lines.append(f"🗓️ Scade il <b>{dt.strftime('%d/%m/%Y')}</b> alle {dt.strftime('%H:%M')} "
+                               f"(tra {days_left} giorni)")
+              else:
+                  lines.append("ℹ️ Data di scadenza esatta non disponibile per questo token.")
+              send("\n".join(lines))
+
           elif command in ("/help", "/start"):
               send(
                   "🅿️ <b>Parkbot — comandi disponibili:</b>\n\n"
-                  "/park &lt;data&gt; — prenota (es: /park giovedì)\n"
+                  "/park &lt;data&gt; — prenota, subito se possibile (es: /park giovedì)\n"
                   "/list — mostra prenotazioni in coda\n"
                   "/cancel &lt;data&gt; — rimuovi dalla coda\n"
                   "/future — prenotazioni confermate sul portale\n"
+                  "/tokenstatus — verifica validità e scadenza del token MFN\n"
                   "/help — questo messaggio\n\n"
                   "Date accettate: oggi, domani, dopodomani, lunedì…domenica, gg/mm/aaaa"
               )
