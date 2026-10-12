@@ -131,18 +131,6 @@ jobs:
                   send(f"❌ <b>{display}</b> è una data passata, non aggiunta in coda.")
                   sys.exit(0)
 
-              if attempt and attempt.outcome == "active_booking_conflict":
-                  conflict_display = (dateparse.to_display(attempt.conflict_date)
-                                      if attempt.conflict_date else "un'altra data")
-                  q.queue_booking(iso, "parking", source="telegram")
-                  send_status([
-                      f"⏳ Hai già una prenotazione attiva per <b>{conflict_display}</b> — "
-                      f"il portale ne permette una sola alla volta.\n"
-                      f"<b>{display}</b> aggiunto in coda, riproverò automaticamente "
-                      f"appena si libera."
-                  ])
-                  sys.exit(0)
-
               _, created = q.queue_booking(iso, "parking", source="telegram")
               reason = {
                   "waiting": "fuori dalla finestra prenotabile, ",

@@ -178,7 +178,7 @@ def get_booking_window(token: Optional[TokenBundle] = None) -> BookingWindow:
 class ImmediateBookingResult:
     """Outcome of a same-second booking attempt (as opposed to the queue+midnight-fire path).
 
-    outcome: "booked" | "past" | "waiting" | "unavailable" | "active_booking_conflict" | "error"
+    outcome: "booked" | "past" | "waiting" | "unavailable" | "error"
     """
     outcome: str
     detail: str
@@ -186,7 +186,6 @@ class ImmediateBookingResult:
     spot: Optional[str] = None
     available: Optional[int] = None   # free spots left in the lot, right after booking
     capacity: Optional[int] = None    # total spots in the lot
-    conflict_date: Optional[str] = None  # set only for "active_booking_conflict"
 
 
 def try_book_now(
@@ -220,23 +219,19 @@ def try_book_now(
     result = book_parking(target_date, lot_id=lot_id, token=token)
     if not result.success:
         if result.status_code == 404 and "disponibil" in result.body.lower():
-            # NOT a capacity issue, even though the portal's error text says
-            # "non disponibile" — the window said bookable, so the lot has room.
-            # This 404 means the account already has an active/future booking and
-            # the portal only allows one at a time (same app-side rule that greys
-            # out the "prenota" button for other dates). It clears itself once the
-            # current active booking's date passes — see cli._fire_parking_entry.
-            conflict_date = None
-            try:
-                existing = list_future_bookings(token=token)
-                if existing:
-                    conflict_date = existing[0].get("data") or existing[0].get("date")
-            except Exception:
-                pass
-            detail = "hai già una prenotazione attiva sul portale (ne è permessa una sola alla volta)"
-            if conflict_date:
-                detail += f" — per il {conflict_date}"
-            return ImmediateBookingResult("active_booking_conflict", detail, conflict_date=conflict_date)
+            # The window said bookable, but the POST was refused as "non disponibile".
+            # Root cause NOT confirmed (as of 2026-10-12) — two live hypotheses, both
+            # consistent with observed data, neither proven:
+            #   H1 (shared capacity): the 127-spot lot is genuinely full that day,
+            #       company-wide, unrelated to this account.
+            #   H2 (personal "1 future booking" limit): the portal may allow one
+            #       "current" (today) + one "future" booking, not two future ones —
+            #       an existing future booking would block any other future date.
+            # cli._fire_parking_entry previously asserted H2 as fact; that's wrong,
+            # it was a guess. Don't re-introduce that claim here without real
+            # evidence (e.g. comparing postiDisponibili before/after a future booking
+            # is cancelled, or once it lapses — see README/CLAUDE.md).
+            return ImmediateBookingResult("unavailable", "nessun posto disponibile per questa data")
         return ImmediateBookingResult("error", f"http {result.status_code}: {result.body[:200]}")
 
     spot = None

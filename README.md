@@ -132,7 +132,7 @@ Date accettate: `oggi`, `domani`, `dopodomani`, `lunedì`…`domenica`, `gg/mm`,
 
 `/park` prova prima la prenotazione immediata perché il portale accetta prenotazioni solo entro una finestra di qualche giorno in avanti (si allarga di un giorno ogni notte): se la data richiesta è già dentro quella finestra, succede tutto all'istante; se è troppo lontana nel tempo, resta in coda — non c'è modo di "bypassare" il limite imposto dal portale stesso.
 
-Il portale Milanofiori Nord permette **una sola prenotazione attiva alla volta** (è lo stesso motivo per cui a volte il pulsante "prenota" è grigio sull'app): se hai già una prenotazione confermata per un'altra data, `/park` lo segnala chiaramente invece di dire genericamente "nessun posto", mette comunque la nuova data in coda, e riprova automaticamente ogni notte finché la prenotazione attuale non "si consuma" (passa la sua data).
+Se `/park` risponde "nessun posto disponibile per questa data", la causa esatta non è nota con certezza: il lotto (127 posti) è condiviso con tutto l'ufficio e potrebbe essere genuinamente pieno quel giorno, oppure il portale potrebbe limitare le prenotazioni future attive contemporaneamente (non confermato). In entrambi i casi la data resta comunque in coda e viene ritentata ogni notte automaticamente — usa `/spots` per farti un'idea di quanto è piena la finestra nei prossimi giorni.
 
 ---
 
