@@ -151,3 +151,21 @@ jobs:
           print("=== BookingWindow.not_available (unico segnale di 'pieno' a livello data) ===")
           print(f"not_available: {window.not_available}")
           EOF
+
+      - name: ⚠️ Tentativo REALE di prenotazione per oggi (bypassa il pre-check not_available)
+        env:
+          PARKBOT_STATE_DIR: ${{ github.workspace }}
+        run: |
+          python3 - << 'EOF'
+          import os, datetime
+          os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
+          from parkbot.tokens import get_access_token
+          from parkbot.booking import book_parking
+
+          today = datetime.date.today().isoformat()
+          bundle = get_access_token()
+          print(f"=== POST reale /prenotazioni per {today} (bypass pre-check) ===")
+          result = book_parking(today, token=bundle)
+          print(f"success={result.success}  status_code={result.status_code}  booking_id={result.booking_id}")
+          print(f"body: {result.body[:500]}")
+          EOF
