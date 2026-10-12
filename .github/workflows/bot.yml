@@ -135,6 +135,7 @@ jobs:
               reason = {
                   "waiting": "fuori dalla finestra prenotabile, ",
                   "unavailable": "nessun posto libero al momento, ",
+                  "daily_limit": "limite giornaliero di tentativi raggiunto, ",
                   "error": "errore temporaneo dal portale, ",
               }.get(attempt.outcome if attempt else None, "")
               if created:

@@ -178,7 +178,7 @@ def get_booking_window(token: Optional[TokenBundle] = None) -> BookingWindow:
 class ImmediateBookingResult:
     """Outcome of a same-second booking attempt (as opposed to the queue+midnight-fire path).
 
-    outcome: "booked" | "past" | "waiting" | "unavailable" | "error"
+    outcome: "booked" | "past" | "waiting" | "unavailable" | "daily_limit" | "error"
     """
     outcome: str
     detail: str
@@ -218,6 +218,18 @@ def try_book_now(
 
     result = book_parking(target_date, lot_id=lot_id, token=token)
     if not result.success:
+        if result.status_code == 401 and "limite giornaliero" in result.body.lower():
+            # Confirmed live 2026-10-12: literal, documented rate limit on booking
+            # ATTEMPTS per day (account-wide, not per-date) — HTTP 401
+            # {"message":"Limite giornaliero prenotazioni raggiunto"}. Distinct from
+            # the 404 "non disponibile" case below (unrelated/still-unexplained).
+            # Heavy manual testing (many /park + probe runs in one day) can burn
+            # through this quota — if this starts appearing often in real usage
+            # (not just during debugging), reduce midnight-fire.yml's retry count.
+            return ImmediateBookingResult(
+                "daily_limit",
+                "limite giornaliero di tentativi di prenotazione raggiunto — riprova domani",
+            )
         if result.status_code == 404 and "disponibil" in result.body.lower():
             # The window said bookable, but the POST was refused as "non disponibile".
             # Root cause NOT confirmed (as of 2026-10-12) — two live hypotheses, both
