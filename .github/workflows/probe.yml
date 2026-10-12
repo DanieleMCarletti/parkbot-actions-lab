@@ -126,7 +126,14 @@ jobs:
               lots = check_availability(d, token=bundle)
               for lot in lots:
                   if lot.get("id") == 54:
+                      print(f"  chiavi lotto: {sorted(lot.keys())}")
                       codes = [p.get("posti_codice") for p in (lot.get("posti") or [])]
                       print(f"  len(posti)={len(codes)}  n_posti={lot.get('n_posti')}  "
                             f"'{spot}' in posti? {spot in codes}")
+                      if lot.get("posti"):
+                          print(f"  chiavi di un elemento posti[0]: {sorted(lot['posti'][0].keys())}")
+
+          print("")
+          print("=== BookingWindow.not_available (unico segnale di 'pieno' a livello data) ===")
+          print(f"not_available: {window.not_available}")
           EOF
