@@ -114,4 +114,19 @@ jobs:
           data = check_availability(window.max_date, token=bundle)
           print(f"=== check_availability({window.max_date}) — struttura risposta ===")
           print(json.dumps(data, indent=2, ensure_ascii=False)[:3000])
+
+          print("")
+          print("=== Verifica se 'posti' è il catalogo fisso o i posti davvero liberi ===")
+          from parkbot.booking import list_future_bookings
+          existing = list_future_bookings(token=bundle)
+          for b in existing:
+              d = b.get("data") or b.get("date")
+              spot = b.get("posti_codice")
+              print(f"Prenotazione confermata: {d} -> posto {spot}")
+              lots = check_availability(d, token=bundle)
+              for lot in lots:
+                  if lot.get("id") == 54:
+                      codes = [p.get("posti_codice") for p in (lot.get("posti") or [])]
+                      print(f"  len(posti)={len(codes)}  n_posti={lot.get('n_posti')}  "
+                            f"'{spot}' in posti? {spot in codes}")
           EOF
