@@ -4,5 +4,7 @@
   "lot_id": 54,
   "queued_at": 1792073375.8777165,
   "source": "telegram",
-  "sn_sys_id": null
+  "sn_sys_id": null,
+  "error": "data passata (min 2026-10-17)",
+  "failed_at": 1792188076.805735
 }
