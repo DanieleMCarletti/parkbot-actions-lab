@@ -55,7 +55,7 @@ jobs:
 
           os.environ.setdefault("PARKBOT_STATE_DIR", os.environ["GITHUB_WORKSPACE"])
           from parkbot import config, dateparse
-          from parkbot.booking import list_future_bookings, try_book_now, list_window_availability
+          from parkbot.booking import list_future_bookings, try_book_now, list_window_availability, rebook
           from parkbot.tokens import get_access_token, check_token_status, TokenError
           from parkbot import queue as q
 
@@ -162,6 +162,74 @@ jobs:
               else:
                   send(f"ℹ️ Nessuna prenotazione in coda per {dateparse.to_display(iso)}.")
 
+          elif command == "/rebook":
+              if not args:
+                  send("❌ Uso: /rebook &lt;data&gt; [conferma]\nEsempio: /rebook giovedì")
+                  sys.exit(0)
+              rebook_parts = args.split()
+              confirmed = bool(rebook_parts) and rebook_parts[-1].lower() == "conferma"
+              date_args = " ".join(rebook_parts[:-1]) if confirmed else args
+              try:
+                  iso = dateparse.parse_date(date_args)
+              except Exception:
+                  send(f"❌ Data non riconosciuta: <b>{date_args}</b>")
+                  sys.exit(0)
+              display = dateparse.to_display(iso)
+
+              if not confirmed:
+                  try:
+                      bundle = get_access_token()
+                      current = list_future_bookings(token=bundle)
+                  except Exception as e:
+                      send(f"❌ Errore nel controllare la prenotazione attuale: {e}")
+                      sys.exit(0)
+                  if not current:
+                      send(f"ℹ️ Non hai prenotazioni attive da sostituire — usa direttamente /park {date_args}")
+                      sys.exit(0)
+                  old = current[0]
+                  old_display = dateparse.to_display(old.get("data") or old.get("date"))
+                  old_spot = old.get("posti_codice", "—")
+                  send(
+                      f"⚠️ <b>Attenzione</b>: puoi avere una sola prenotazione attiva sul portale.\n"
+                      f"Confermando, CANCELLO quella per <b>{old_display}</b> (posto {old_spot}) "
+                      f"e provo a prenotare <b>{display}</b> al suo posto.\n\n"
+                      f"Se la nuova prenotazione dovesse fallire (es. lotto pieno), <b>resti senza "
+                      f"nessuna delle due</b> — {display} resterebbe comunque in coda per il "
+                      f"ritento automatico stanotte, ma nel frattempo non avresti nulla di confermato.\n\n"
+                      f"Per confermare: <code>/rebook {date_args} conferma</code>"
+                  )
+                  sys.exit(0)
+
+              try:
+                  bundle = get_access_token()
+                  result = rebook(iso, token=bundle)
+              except Exception as e:
+                  send(f"❌ Errore: {e}")
+                  sys.exit(0)
+
+              if result.outcome == "no_active_booking":
+                  send(f"ℹ️ Non hai prenotazioni attive da sostituire — usa direttamente /park {date_args}")
+              elif result.outcome == "same_date":
+                  send(f"ℹ️ <b>{display}</b> è già la data prenotata (posto {result.old_spot}).")
+              elif result.outcome == "cancel_failed":
+                  send(f"❌ Cancellazione rifiutata dal portale — nessuna modifica effettuata.\n{result.detail}")
+              elif result.outcome == "rebooked":
+                  nr = result.new_result
+                  spot_line = f"\n📍 Posto: <b>{nr.spot}</b>" if nr and nr.spot else ""
+                  send(
+                      f"✅ Prenotazione spostata: <b>{dateparse.to_display(result.old_date)}</b> → "
+                      f"<b>{display}</b>!{spot_line}"
+                  )
+              elif result.outcome == "left_without_booking":
+                  q.queue_booking(iso, "parking", source="telegram")
+                  nr = result.new_result
+                  send(
+                      f"⚠️ Ho cancellato <b>{dateparse.to_display(result.old_date)}</b> ma NON sono "
+                      f"riuscito a prenotare <b>{display}</b> ({nr.detail if nr else 'errore sconosciuto'}).\n"
+                      f"Al momento <b>non hai prenotazioni attive</b>. {display} è in coda, "
+                      f"riproverò stanotte — oppure usa /park su un'altra data."
+                  )
+
           elif command == "/future":
               try:
                   bundle = get_access_token()
@@ -230,6 +298,8 @@ jobs:
                   "/park &lt;data&gt; — prenota, subito se possibile (es: /park giovedì)\n"
                   "/list — mostra prenotazioni in coda\n"
                   "/cancel &lt;data&gt; — rimuovi dalla coda\n"
+                  "/rebook &lt;data&gt; — cancella la prenotazione attiva e prenota un'altra data "
+                  "(richiede conferma, vedi istruzioni al primo tentativo)\n"
                   "/future — prenotazioni confermate sul portale\n"
                   "/spots — posti liberi nei giorni della finestra prenotabile\n"
                   "/tokenstatus — verifica validità e scadenza del token MFN\n"

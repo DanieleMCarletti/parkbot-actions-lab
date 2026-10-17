@@ -124,6 +124,7 @@ Nessuno di questi tre va mai impostato o modificato a mano nel dashboard Cloudfl
 | `/list` | Mostra coda e prenotazioni confermate |
 | `/future` | Prenotazioni confermate sul portale |
 | `/cancel <data>` | Rimuovi dalla coda (non tocca prenotazioni già confermate sul portale) |
+| `/rebook <data>` | Cancella la prenotazione attiva e ne prenota una nuova al suo posto (richiede conferma esplicita, vedi sotto) |
 | `/spots` | Posti liberi, giorno per giorno, in tutta la finestra prenotabile attuale |
 | `/tokenstatus` | Verifica se il token MFN è ancora valido e, se noto, la data di scadenza esatta — utile prima di partire per le ferie |
 | `/help` | Lista comandi |
@@ -132,7 +133,16 @@ Date accettate: `oggi`, `domani`, `dopodomani`, `lunedì`…`domenica`, `gg/mm`,
 
 `/park` prova prima la prenotazione immediata perché il portale accetta prenotazioni solo entro una finestra di qualche giorno in avanti (si allarga di un giorno ogni notte): se la data richiesta è già dentro quella finestra, succede tutto all'istante; se è troppo lontana nel tempo, resta in coda — non c'è modo di "bypassare" il limite imposto dal portale stesso.
 
-Se `/park` risponde "nessun posto disponibile per questa data", la causa esatta non è nota con certezza: il lotto (127 posti) è condiviso con tutto l'ufficio e potrebbe essere genuinamente pieno quel giorno, oppure il portale potrebbe limitare le prenotazioni future attive contemporaneamente (non confermato). In entrambi i casi la data resta comunque in coda e viene ritentata ogni notte automaticamente — usa `/spots` per farti un'idea di quanto è piena la finestra nei prossimi giorni.
+Il tuo account permette **una sola prenotazione attiva alla volta** (confermato da `GET /app/api/me`, campo `n_max_prenotazioni_attivabili: 1`): se `/park` risponde "nessun posto disponibile", nella maggior parte dei casi è perché hai già una prenotazione confermata per un'altra data. La data resta comunque in coda e viene ritentata ogni notte — usa `/spots` per farti un'idea della finestra, oppure `/rebook` se vuoi spostare subito la prenotazione attiva su una data diversa.
+
+### `/rebook` — cambiare la data della prenotazione attiva
+
+Dato che puoi avere una sola prenotazione attiva, cambiarla richiede **prima cancellarla e poi riprovare a prenotare la nuova data** — non è possibile verificare in anticipo che la nuova data abbia posto prima di rinunciare a quella attuale. Per questo `/rebook` richiede due passaggi:
+
+1. `/rebook <data>` — mostra un avviso con la prenotazione attuale che verrebbe cancellata e il rischio (se la nuova data fallisce, resti senza nessuna prenotazione confermata, anche se quella nuova resta comunque in coda per il ritento notturno)
+2. `/rebook <data> conferma` — esegue davvero: cancella quella attuale e prova a prenotare la nuova
+
+Non è un'azione a un solo comando apposta, per evitare cancellazioni accidentali.
 
 ---
 

@@ -105,6 +105,43 @@ def book_parking(
     )
 
 
+@dataclass
+class CancelResult:
+    success: bool
+    status_code: int
+    body: str
+
+
+def cancel_confirmed_booking(
+    booking_id: int,
+    *,
+    token: Optional[TokenBundle] = None,
+) -> CancelResult:
+    """DELETE /app/api/prenotazioni/{id}/delete — cancella una prenotazione CONFERMATA
+    sul portale (non quelle solo in coda locale, per quello vedi `queue.py`).
+
+    Catturato dal traffico reale del browser il 2026-10-17: risposta 204 No Content,
+    nessun body né in richiesta né in risposta — l'id nell'URL è sufficiente.
+
+    ⚠️ L'account ha `n_max_prenotazioni_attivabili: 1` (confermato via /app/api/me):
+    UNA sola prenotazione attiva alla volta. Cancellare per riprenotare un altro
+    giorno è quindi un'operazione a rischio: se la nuova prenotazione fallisce dopo
+    la cancellazione (lotto pieno, rete, token scaduto...) si resta senza nessuna
+    delle due. I chiamanti (es. il comando Telegram) devono rendere questo rischio
+    esplicito all'utente PRIMA di cancellare, non scoprirlo dopo.
+    """
+    if token is None:
+        token = get_access_token()
+
+    with _client(token) as client:
+        try:
+            r = client.delete(f"{config.PORTAL_API}/prenotazioni/{booking_id}/delete")
+        except httpx.HTTPError as e:
+            raise BookingError(f"Network error cancelling booking {booking_id}: {e}") from e
+
+    return CancelResult(success=(r.status_code == 204), status_code=r.status_code, body=r.text)
+
+
 def list_future_bookings(token: Optional[TokenBundle] = None) -> list[dict]:
     """GET /app/api/prenotazioni/future"""
     if token is None:
@@ -309,3 +346,66 @@ def list_window_availability(
         d += timedelta(days=1)
 
     return results
+
+
+@dataclass
+class RebookResult:
+    """Outcome of cancel-the-active-booking-and-book-a-different-date.
+
+    outcome: "no_active_booking" | "same_date" | "cancel_failed" | "rebooked" | "left_without_booking"
+    """
+    outcome: str
+    detail: str = ""
+    old_date: Optional[str] = None
+    old_spot: Optional[str] = None
+    new_result: Optional[ImmediateBookingResult] = None
+
+
+def rebook(
+    target_date: str | _date,
+    *,
+    lot_id: int = config.DEFAULT_LOT_ID,
+    token: Optional[TokenBundle] = None,
+) -> RebookResult:
+    """Cancel the current active booking and try to book `target_date` instead.
+
+    The account allows only ONE active booking at a time (confirmed via /app/api/me:
+    `n_max_prenotazioni_attivabili: 1`), so switching dates REQUIRES cancelling first
+    — there's no way to validate the new date can be booked before giving up the old
+    one. This function does not hide that risk: if the new booking fails after the
+    old one is cancelled, outcome is "left_without_booking" and the caller MUST
+    surface that clearly (and should queue `target_date` for the nightly retry).
+    """
+    if isinstance(target_date, _date):
+        target_date = target_date.isoformat()
+    if token is None:
+        token = get_access_token()
+
+    current = list_future_bookings(token=token)
+    if not current:
+        return RebookResult("no_active_booking", detail="nessuna prenotazione attiva da sostituire")
+
+    existing = current[0]
+    old_date = existing.get("data") or existing.get("date")
+    old_spot = existing.get("posti_codice")
+    old_id = existing.get("id")
+
+    if old_date == target_date:
+        return RebookResult("same_date", old_date=old_date, old_spot=old_spot,
+                             detail="è già la data prenotata")
+
+    cancel = cancel_confirmed_booking(old_id, token=token)
+    if not cancel.success:
+        return RebookResult(
+            "cancel_failed", old_date=old_date, old_spot=old_spot,
+            detail=f"cancellazione rifiutata (http {cancel.status_code}) — nessuna modifica effettuata",
+        )
+
+    new_result = try_book_now(target_date, lot_id=lot_id, token=token)
+    if new_result.outcome == "booked":
+        return RebookResult("rebooked", old_date=old_date, old_spot=old_spot, new_result=new_result)
+
+    return RebookResult(
+        "left_without_booking", old_date=old_date, old_spot=old_spot, new_result=new_result,
+        detail=f"{old_date} cancellata ma {target_date} non prenotata ({new_result.detail})",
+    )
